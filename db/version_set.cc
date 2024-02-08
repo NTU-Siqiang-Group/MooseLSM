@@ -19,6 +19,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <numeric>
 
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_cache.h"
@@ -3396,6 +3397,51 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
 }
 }  // anonymous namespace
 
+void VersionStorageInfo::ComputeCompactionScoreForMoose(
+  const ImmutableOptions& immutable_options,
+  const MutableCFOptions& mutable_cf_options) {
+  auto logical_run_numbers = mutable_cf_options.run_numbers;
+  int lvl_idx = 0;
+
+  auto l0_files = files_[0];
+  int file_num = 0;
+  for (auto* f : l0_files) {
+    if (!f->being_compacted) {
+      file_num++;
+    }
+  }
+  double score = std::max(
+    (double)file_num / mutable_cf_options.level0_file_num_compaction_trigger,
+    (double)file_num / mutable_cf_options.level0_slowdown_writes_trigger
+  );
+  compaction_level_[0] = 0;
+  compaction_score_[0] = score;
+  lvl_idx += 1;
+  for (size_t i = 1; i < logical_run_numbers.size(); i++) {
+    int run_number = logical_run_numbers[i];
+    uint64_t total_size = 0;
+    for (int j = 0; j < run_number; j++) {
+      int lvl = lvl_idx + j;
+      auto lvl_files = files_[lvl];
+      for (auto* f : lvl_files) {
+        if (!f->being_compacted) {
+          total_size += f->compensated_file_size;
+        }
+      }
+    }
+    uint64_t logical_max_cap = std::accumulate(
+        mutable_cf_options.level_capacities.begin() + lvl_idx,
+        mutable_cf_options.level_capacities.begin() + lvl_idx + run_number,
+        0UL);
+    score = (double)total_size / logical_max_cap;
+    for (int j = 0; j < run_number; j++) {
+      compaction_level_[j + lvl_idx] = lvl_idx + j;
+      compaction_score_[j + lvl_idx] = score;
+    }
+    lvl_idx += run_number;
+  }
+}
+
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableOptions& immutable_options,
     const MutableCFOptions& mutable_cf_options) {
@@ -3409,8 +3455,12 @@ void VersionStorageInfo::ComputeCompactionScore(
   // maintaining it to be over 1.0, we scale the original score by 10x
   // if it is larger than 1.0.
   const double kScoreScale = 10.0;
+  bool normal_compute = immutable_options.compaction_style != kCompactionStyleMoose;
+  if (!normal_compute) {
+    ComputeCompactionScoreForMoose(immutable_options, mutable_cf_options);
+  }
   int max_output_level = MaxOutputLevel(immutable_options.allow_ingest_behind);
-  for (int level = 0; level <= MaxInputLevel(); level++) {
+  for (int level = 0; normal_compute && level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
       // We treat level-0 specially by bounding the number of files

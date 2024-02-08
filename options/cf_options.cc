@@ -563,7 +563,18 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, memtable_max_range_deletions),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-
+        {"level_capacities",
+          OptionTypeInfo::Vector<uint64_t>(
+             offsetof(struct MutableCFOptions,
+                      level_capacities),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             {0, OptionType::kUInt64T})},
+        {"run_numbers",
+          OptionTypeInfo::Vector<int>(
+             offsetof(struct MutableCFOptions,
+                      run_numbers),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             {0, OptionType::kInt32T})},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>

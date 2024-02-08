@@ -14,6 +14,7 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <iostream>
 
 #include "db/compaction/compaction.h"
 #include "db/version_set.h"
@@ -314,5 +315,5 @@ CompressionOptions GetCompressionOptions(
     const MutableCFOptions& mutable_cf_options,
     const VersionStorageInfo* vstorage, int level,
     const bool enable_compression = true);
-
+void PrintCompactionInfo(Logger* logger, const std::vector<CompactionInputFiles>& inputs);
 }  // namespace ROCKSDB_NAMESPACE

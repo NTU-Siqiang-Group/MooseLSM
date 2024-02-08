@@ -164,6 +164,8 @@ size_t ParseSizeT(const std::string& value);
 
 std::vector<int> ParseVectorInt(const std::string& value);
 
+std::vector<uint64_t> ParseVectorUint64(const std::string& value);
+
 bool SerializeIntVector(const std::vector<int>& vec, std::string* value);
 
 // Expects HH:mm format for the input value

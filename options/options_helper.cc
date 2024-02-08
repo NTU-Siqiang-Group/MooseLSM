@@ -277,6 +277,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->last_level_temperature = moptions.last_level_temperature;
   cf_opts->bottommost_temperature = moptions.last_level_temperature;
   cf_opts->memtable_max_range_deletions = moptions.memtable_max_range_deletions;
+  cf_opts->level_capacities = moptions.level_capacities;
+  cf_opts->run_numbers = moptions.run_numbers;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -330,7 +332,8 @@ std::map<CompactionStyle, std::string>
         {kCompactionStyleLevel, "kCompactionStyleLevel"},
         {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
         {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
-        {kCompactionStyleNone, "kCompactionStyleNone"}};
+        {kCompactionStyleNone, "kCompactionStyleNone"},
+        {kCompactionStyleMoose, "kCompactionStyleMoose"}};
 
 std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
     {kByCompensatedSize, "kByCompensatedSize"},
@@ -801,7 +804,8 @@ std::unordered_map<std::string, CompactionStyle>
         {"kCompactionStyleLevel", kCompactionStyleLevel},
         {"kCompactionStyleUniversal", kCompactionStyleUniversal},
         {"kCompactionStyleFIFO", kCompactionStyleFIFO},
-        {"kCompactionStyleNone", kCompactionStyleNone}};
+        {"kCompactionStyleNone", kCompactionStyleNone},
+        {"kCompactionStyleMoose", kCompactionStyleMoose}};
 
 std::unordered_map<std::string, CompactionPri>
     OptionsHelper::compaction_pri_string_map = {

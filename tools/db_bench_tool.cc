@@ -1699,6 +1699,9 @@ DEFINE_bool(read_with_latest_user_timestamp, true,
 
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
+DEFINE_string(level_capacities, "", "Comma-separated list of level capacities");
+
+DEFINE_string(run_numbers, "", "Comma-separated list of run numbers");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 
 static const bool FLAGS_prefix_size_dummy __attribute__((__unused__)) =
@@ -4150,6 +4153,20 @@ class Benchmark {
     options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
+    if (options.compaction_style == rocksdb::kCompactionStyleMoose) {
+      std::vector<std::string> split_st = StringSplit(FLAGS_level_capacities, ',');
+      std::vector<uint64_t> level_capacities;
+      for (auto& s : split_st) {
+        level_capacities.push_back(std::stoull(s));
+      }
+      split_st = StringSplit(FLAGS_run_numbers, ',');
+      std::vector<int> run_numbers;
+      for (auto& s : split_st) {
+        run_numbers.push_back(std::stoi(s));
+      }
+      options.level_capacities = level_capacities;
+      options.run_numbers = run_numbers;
+    }
     options.compaction_pri = FLAGS_compaction_pri_e;
     options.allow_mmap_reads = FLAGS_mmap_read;
     options.allow_mmap_writes = FLAGS_mmap_write;

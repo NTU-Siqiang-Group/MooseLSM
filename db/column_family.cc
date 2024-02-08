@@ -21,6 +21,7 @@
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
+#include "db/compaction/compaction_picker_moose.h"
 #include "db/compaction/compaction_picker_universal.h"
 #include "db/db_impl/db_impl.h"
 #include "db/internal_stats.h"
@@ -603,6 +604,9 @@ ColumnFamilyData::ColumnFamilyData(
                      "Column family %s does not use any background compaction. "
                      "Compactions can only be done via CompactFiles\n",
                      GetName().c_str());
+    } else if (ioptions_.compaction_style == kCompactionStyleMoose) {
+      compaction_picker_.reset(
+          new MooseCompactionPicker(ioptions_, &internal_comparator_));
     } else {
       ROCKS_LOG_ERROR(ioptions_.logger,
                       "Unable to recognize the specified compaction style %d. "

@@ -344,6 +344,9 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint32_t memtable_max_range_deletions = 0;
 
+  std::vector<uint64_t> level_capacities;
+
+  std::vector<int> run_numbers;
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
