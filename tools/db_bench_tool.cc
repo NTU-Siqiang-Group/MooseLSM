@@ -4154,7 +4154,8 @@ class Benchmark {
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
     if (options.compaction_style == rocksdb::kCompactionStyleMoose) {
-      std::vector<std::string> split_st = StringSplit(FLAGS_level_capacities, ',');
+      std::vector<std::string> split_st =
+          StringSplit(FLAGS_level_capacities, ',');
       std::vector<uint64_t> level_capacities;
       for (auto& s : split_st) {
         level_capacities.push_back(std::stoull(s));

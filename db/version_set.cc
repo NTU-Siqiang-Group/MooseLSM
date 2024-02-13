@@ -15,11 +15,11 @@
 #include <cstdio>
 #include <list>
 #include <map>
+#include <numeric>
 #include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <numeric>
 
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_cache.h"
@@ -3398,8 +3398,8 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
 }  // anonymous namespace
 
 void VersionStorageInfo::ComputeCompactionScoreForMoose(
-  const ImmutableOptions& immutable_options,
-  const MutableCFOptions& mutable_cf_options) {
+    const ImmutableOptions& immutable_options,
+    const MutableCFOptions& mutable_cf_options) {
   auto logical_run_numbers = mutable_cf_options.run_numbers;
   int lvl_idx = 0;
 
@@ -3411,9 +3411,8 @@ void VersionStorageInfo::ComputeCompactionScoreForMoose(
     }
   }
   double score = std::max(
-    (double)file_num / mutable_cf_options.level0_file_num_compaction_trigger,
-    (double)file_num / mutable_cf_options.level0_slowdown_writes_trigger
-  );
+      (double)file_num / mutable_cf_options.level0_file_num_compaction_trigger,
+      (double)file_num / mutable_cf_options.level0_slowdown_writes_trigger);
   compaction_level_[0] = 0;
   compaction_score_[0] = score;
   lvl_idx += 1;
@@ -3455,7 +3454,8 @@ void VersionStorageInfo::ComputeCompactionScore(
   // maintaining it to be over 1.0, we scale the original score by 10x
   // if it is larger than 1.0.
   const double kScoreScale = 10.0;
-  bool normal_compute = immutable_options.compaction_style != kCompactionStyleMoose;
+  bool normal_compute =
+      immutable_options.compaction_style != kCompactionStyleMoose;
   if (!normal_compute) {
     ComputeCompactionScoreForMoose(immutable_options, mutable_cf_options);
   }

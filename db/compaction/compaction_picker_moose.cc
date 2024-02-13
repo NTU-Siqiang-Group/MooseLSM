@@ -1,10 +1,13 @@
 #include "db/compaction/compaction_picker_moose.h"
-#include "logging/logging.h"
+
 #include <iostream>
 #include <queue>
 
+#include "logging/logging.h"
+
 namespace ROCKSDB_NAMESPACE {
-bool MooseCompactionPicker::NeedsCompaction(const VersionStorageInfo* vstorage) const {
+bool MooseCompactionPicker::NeedsCompaction(
+    const VersionStorageInfo* vstorage) const {
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
@@ -22,12 +25,13 @@ bool MooseCompactionPicker::NeedsCompaction(const VersionStorageInfo* vstorage) 
 namespace {
 class MooseCompactionBuilder {
  public:
-  MooseCompactionBuilder(const std::string& cf_name, VersionStorageInfo* vstorage,
-                       CompactionPicker* compaction_picker,
-                       LogBuffer* log_buffer,
-                       const MutableCFOptions& mutable_cf_options,
-                       const ImmutableOptions& ioptions,
-                       const MutableDBOptions& mutable_db_options)
+  MooseCompactionBuilder(const std::string& cf_name,
+                         VersionStorageInfo* vstorage,
+                         CompactionPicker* compaction_picker,
+                         LogBuffer* log_buffer,
+                         const MutableCFOptions& mutable_cf_options,
+                         const ImmutableOptions& ioptions,
+                         const MutableDBOptions& mutable_db_options)
       : cf_name_(cf_name),
         vstorage_(vstorage),
         compaction_picker_(compaction_picker),
@@ -101,12 +105,10 @@ struct MergeGroup {
     files.insert({f, physical_level});
     order_files.push_back(f);
   }
-  bool Empty() {
-    return files.size() == 0;
-  }
+  bool Empty() { return files.size() == 0; }
   bool IsIntersected(FileMetaData* f) {
     bool file_min_smaller_equal_than_min =
-      !(cmp->Compare(f->smallest.user_key(), smallest.user_key()) > 0);
+        !(cmp->Compare(f->smallest.user_key(), smallest.user_key()) > 0);
     bool file_max_larger_or_equal_than_max =
         !(cmp->Compare(f->largest.user_key(), largest.user_key()) < 0);
     if (file_min_smaller_equal_than_min && file_max_larger_or_equal_than_max) {
@@ -143,14 +145,17 @@ struct MergeGroup {
 //   return result;
 // }
 
-// void PrintCompactionDetailInfo(const std::vector<CompactionInputFiles>& inputs) {
-//   std::cout << "Compaction ready - last level : " << inputs.back().level << std::endl;
-//   for (auto input : inputs) {
-//     std::cout << "  Level " << input.level << ", file number: " << input.files.size() << std::endl;
-//     uint64_t total_size = 0;
-//     for (auto file : input.files) {
-//       // std::cout << "    file #" << file->fd.GetNumber() << " " <<  decodeKey(file->smallest.user_key().ToString()) << " - " << decodeKey(file->largest.user_key().ToString()) << std::endl;
-//       total_size += file->fd.file_size;
+// void PrintCompactionDetailInfo(const std::vector<CompactionInputFiles>&
+// inputs) {
+//   std::cout << "Compaction ready - last level : " << inputs.back().level <<
+//   std::endl; for (auto input : inputs) {
+//     std::cout << "  Level " << input.level << ", file number: " <<
+//     input.files.size() << std::endl; uint64_t total_size = 0; for (auto file
+//     : input.files) {
+//       // std::cout << "    file #" << file->fd.GetNumber() << " " <<
+//       decodeKey(file->smallest.user_key().ToString()) << " - " <<
+//       decodeKey(file->largest.user_key().ToString()) << std::endl; total_size
+//       += file->fd.file_size;
 //     }
 //     std::cout << "    total size: " << total_size << " bytes" << std::endl;
 //     std::cout << std::endl;
@@ -206,7 +211,6 @@ uint32_t MooseCompactionBuilder::GetPathId(
   return p;
 }
 
-
 int MooseCompactionBuilder::ComputeLogicalLevel(int target_lvl) const {
   int total_lvl = 0;
   auto run_numbers = mutable_cf_options_.run_numbers;
@@ -231,20 +235,20 @@ Compaction* MooseCompactionBuilder::PickCompaction() {
     compaction_inputs_.push_back(output_level_inputs_);
   }
   std::sort(compaction_inputs_.begin(), compaction_inputs_.end(),
-    [](const CompactionInputFiles& a, const CompactionInputFiles& b) {
-      return a.level < b.level;
-  });
+            [](const CompactionInputFiles& a, const CompactionInputFiles& b) {
+              return a.level < b.level;
+            });
   compaction_reason_ = CompactionReason::kLevelMaxLevelSize;
   int output_logical_level = ComputeLogicalLevel(output_level_);
-  uint64_t output_file_size = std::pow(2, output_logical_level - 1) * mutable_cf_options_.write_buffer_size;
+  uint64_t output_file_size = std::pow(2, output_logical_level - 1) *
+                              mutable_cf_options_.write_buffer_size;
   // uint64_t output_file_size = 10UL * (1<<20);
   // if (output_level_ >= 10) {
   //   PrintCompactionDetailInfo(compaction_inputs_);
   // }
   auto c = new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
-      std::move(compaction_inputs_), output_level_,
-      output_file_size,
+      std::move(compaction_inputs_), output_level_, output_file_size,
       mutable_cf_options_.max_compaction_bytes,
       GetPathId(ioptions_, mutable_cf_options_, output_level_),
       GetCompressionType(vstorage_, mutable_cf_options_, output_level_,
@@ -297,7 +301,8 @@ bool MooseCompactionBuilder::PickFileToCompact() {
   int output_start_level = std::accumulate(
       mutable_cf_options_.run_numbers.begin(),
       mutable_cf_options_.run_numbers.begin() + target_logical_level, 0);
-  int output_end_level = output_start_level + mutable_cf_options_.run_numbers[target_logical_level];
+  int output_end_level = output_start_level +
+                         mutable_cf_options_.run_numbers[target_logical_level];
   for (int i = output_end_level - 1; i >= output_start_level; i--) {
     auto files = vstorage_->LevelFiles(i);
     uint64_t level_size = 0;
@@ -324,26 +329,31 @@ bool MooseCompactionBuilder::PickFileToCompact() {
       }
       input.files = output_level_files;
       output_level_inputs_ = input;
-      break;       
+      break;
     }
   }
   return output_level_ > 0;
 }
 
-bool MooseCompactionBuilder::PickFilesForLevel(InternalKey* smallest, InternalKey* largest) {
+bool MooseCompactionBuilder::PickFilesForLevel(InternalKey* smallest,
+                                               InternalKey* largest) {
   assert(start_level_ > 0);
   int logical_level = ComputeLogicalLevel(start_level_);
   int start_physical_level = std::accumulate(
       mutable_cf_options_.run_numbers.begin(),
       mutable_cf_options_.run_numbers.begin() + logical_level, 0);
-  int end_physical_level = start_physical_level + mutable_cf_options_.run_numbers[logical_level];
+  int end_physical_level =
+      start_physical_level + mutable_cf_options_.run_numbers[logical_level];
   const auto comparator = vstorage_->InternalComparator()->user_comparator();
   auto cmp = [&](std::pair<FileMetaData*, uint32_t> left,
                  std::pair<FileMetaData*, uint32_t> right) {
     return comparator->Compare(left.first->smallest.user_key(),
                                right.first->smallest.user_key()) > 0;
   };
-  std::priority_queue<std::pair<FileMetaData*, uint32_t>, std::vector<std::pair<FileMetaData*, uint32_t>>, decltype(cmp)> min_key_queue(cmp);
+  std::priority_queue<std::pair<FileMetaData*, uint32_t>,
+                      std::vector<std::pair<FileMetaData*, uint32_t>>,
+                      decltype(cmp)>
+      min_key_queue(cmp);
   for (int i = start_physical_level; i < end_physical_level; i++) {
     if (vstorage_->LevelFiles(i).size() > 0) {
       auto file = vstorage_->LevelFiles(i).at(0);
@@ -374,12 +384,13 @@ bool MooseCompactionBuilder::PickFilesForLevel(InternalKey* smallest, InternalKe
       // proceed the index point at phy_lvl
       auto new_file = vstorage_->LevelFiles(phy_lvl).at(idx + 1);
       min_key_queue.push({new_file, phy_lvl});
-      sst_idxs[phy_lvl] ++;
+      sst_idxs[phy_lvl]++;
     }
   }
   groups.push_back(current);
   // if (logical_level >= 3) {
-  //   std::cout << "grouping logical level " << logical_level << " : " << groups.size() << std::endl;
+  //   std::cout << "grouping logical level " << logical_level << " : " <<
+  //   groups.size() << std::endl;
   // }
   // randomly choose one group to compact
   int compact_idx = rand() % groups.size();
@@ -405,7 +416,8 @@ bool MooseCompactionBuilder::PickFilesForLevel(InternalKey* smallest, InternalKe
   return true;
 }
 
-bool MooseCompactionBuilder::PickFilesForL0(InternalKey* smallest, InternalKey* largest) {
+bool MooseCompactionBuilder::PickFilesForL0(InternalKey* smallest,
+                                            InternalKey* largest) {
   // pick the oldest file to compact
   auto& level_files = vstorage_->LevelFiles(0);
   if (level_files.empty()) {
@@ -424,16 +436,15 @@ bool MooseCompactionBuilder::PickFilesForL0(InternalKey* smallest, InternalKey* 
   return compaction_inputs_.back().files.size() >= 1;
 }
 
-
-} // namespace
+}  // namespace
 
 Compaction* MooseCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     LogBuffer* log_buffer) {
   MooseCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
-                               mutable_cf_options, ioptions_,
-                               mutable_db_options);
+                                 mutable_cf_options, ioptions_,
+                                 mutable_db_options);
   return builder.PickCompaction();
 }
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

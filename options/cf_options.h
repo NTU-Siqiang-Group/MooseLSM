@@ -332,7 +332,7 @@ struct MutableCFOptions {
   // Derived options
   // Per-level target file size.
   std::vector<uint64_t> max_file_size;
-  
+
   std::vector<uint64_t> level_capacities;
 
   std::vector<int> run_numbers;

@@ -1221,16 +1221,23 @@ bool CompactionPicker::GetOverlappingL0Files(
 
   return true;
 }
-void PrintCompactionInfo(Logger* logger, const std::vector<CompactionInputFiles>& inputs) {
-  // ROCKS_LOG_INFO(logger, "Compaction ready - output level: %d\n", inputs.back().level);
-  std::cout << "Compaction ready - output level: " << inputs.back().level << std::endl;
+void PrintCompactionInfo(Logger* logger,
+                         const std::vector<CompactionInputFiles>& inputs) {
+  // ROCKS_LOG_INFO(logger, "Compaction ready - output level: %d\n",
+  // inputs.back().level);
+  std::cout << "Compaction ready - output level: " << inputs.back().level
+            << std::endl;
   for (size_t i = 0; i < inputs.size(); i++) {
     uint64_t total_size = 0;
     for (auto f : inputs[i].files) {
       total_size += f->fd.file_size;
     }
-    // ROCKS_LOG_INFO(logger, "input level: %d, files number: %d, file size: %llu\n", inputs[i].level, (int)inputs[i].files.size(), (unsigned long long)total_size);
-    std::cout << "input level: " << inputs[i].level << ", files number: " << inputs[i].files.size() << ", file size: " << total_size << std::endl;
+    // ROCKS_LOG_INFO(logger, "input level: %d, files number: %d, file size:
+    // %llu\n", inputs[i].level, (int)inputs[i].files.size(), (unsigned long
+    // long)total_size);
+    std::cout << "input level: " << inputs[i].level
+              << ", files number: " << inputs[i].files.size()
+              << ", file size: " << total_size << std::endl;
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
