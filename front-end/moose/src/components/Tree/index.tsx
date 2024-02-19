@@ -37,7 +37,10 @@ class Tree extends React.Component<{}, TreeState> {
         lvl: 0,
         lvlRuns: [],
         lvlCaps: [],
-        isSucc: false,
+        ris: [],
+        nis: [],
+        isSucc: true,
+        errMsg: '',
       },
     }
   }

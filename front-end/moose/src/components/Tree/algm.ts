@@ -13,7 +13,15 @@ let internalDiv = 4;
 export function dp(N: number, NL: number, F: number, blockSize: number, kvSize: number): TreeOutputState {
   states.clear();
   internalDiv = blockSize / kvSize;
-  const fail = { isSucc: false };
+  const fail = { 
+    lvl: 0,
+    lvlRuns: [],
+    lvlCaps: [],
+    isSucc: false,
+    ris: [],
+    nis: [],
+    errMsg: '',
+  };
   if (!dpInner(N - NL, F, NL)) {
     return fail;
   }
@@ -60,6 +68,10 @@ export function dp(N: number, NL: number, F: number, blockSize: number, kvSize: 
     lvl: ris.length,
     lvlRuns: levelRuns,
     lvlCaps: caps,
+    isSucc: true,
+    ris: ris,
+    nis: nis,
+    errMsg: '',
   };
   return ret;
 }

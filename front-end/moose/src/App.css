@@ -36,3 +36,16 @@
     transform: rotate(360deg);
   }
 }
+
+#title .ant-space-item {
+  flex: 1;
+}
+
+#moose-img {
+  flex: 2;
+}
+
+#moose-img img {
+  width: 256px;
+  height: 256px;
+}

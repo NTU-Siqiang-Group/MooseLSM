@@ -8,9 +8,11 @@ export interface TreeInputState {
 };
 
 export interface TreeOutputState {
-  lvl?: number;
-  lvlRuns?: number[];
-  lvlCaps?: number[];
-  isSucc?: boolean;
-  errMsg?: string;
+  lvl: number;
+  lvlRuns: number[];
+  lvlCaps: number[];
+  ris: number[];
+  nis: number[];
+  isSucc: boolean;
+  errMsg: string;
 };
