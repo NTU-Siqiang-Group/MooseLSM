@@ -7,11 +7,12 @@ import { Layout, ConfigProvider, Space } from 'antd';
 
 import Tree from './components/Tree';
 import NavBar from './components/NavBar';
+import MooseFooter from './components/Footer';
 
 const primaryColor = '#009999';
 const bgColor = '#f6ffed';
 
-const { Content, Header } = Layout;
+const { Content } = Layout;
 
 function App() {
   return (
@@ -32,18 +33,19 @@ function App() {
         }
       }}
     > 
-    <Layout>
+    <Layout style={{ minHeight: '100vh' }}>
       <NavBar />
       <Content style={{fontFamily: "'Indie Flower', cursive", fontSize: "3rem", backgroundColor: '#badfca'}}>
         <Space id="title" direction='vertical' style={{ display: "flex" }}>
           <Content>Structural Designs <u>M</u>eet <u>O</u>ptimality:</Content>
           <Content>Exploring <u>O</u>ptimized LSM-tree <u>S</u>tructures in A Colossal Configuration Spac<u>e</u></Content>
           <Content id="moose-img"> 
-            <img src='moose_logo_pure.png'/>
+            <img src='supermoose.png'/>
           </Content>
         </Space>
       </Content>
       <Tree />
+      <MooseFooter />
     </Layout>
     </ConfigProvider>
     </div>

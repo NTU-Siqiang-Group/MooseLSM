@@ -23,6 +23,7 @@ export function dp(N: number, NL: number, F: number, blockSize: number, kvSize: 
     errMsg: '',
   };
   if (!dpInner(N - NL, F, NL)) {
+    fail.errMsg = 'No solution found';
     return fail;
   }
   let prev = F, cap = N;
@@ -31,6 +32,7 @@ export function dp(N: number, NL: number, F: number, blockSize: number, kvSize: 
   while (cap > 0) {
     let state = getState(cap, prev);
     if (state === undefined) {
+      fail.errMsg = 'unknown error';
       return fail;
     }
     let ni = state.ni;
@@ -43,6 +45,7 @@ export function dp(N: number, NL: number, F: number, blockSize: number, kvSize: 
   if (NL !== 0) {
     let state = getState(0, prev);
     if (state === undefined) {
+      fail.errMsg = 'unknown error';
       return fail;
     }
     let ni = state.ni;

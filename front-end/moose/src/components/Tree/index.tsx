@@ -6,6 +6,7 @@ import TreeStructure from './TreeStructure';
 import { dp } from './algm'; 
 
 import './tree.less';
+import { Header } from 'antd/es/layout/layout';
 
 const { Content } = Layout;
 
@@ -39,7 +40,7 @@ class Tree extends React.Component<{}, TreeState> {
         lvlCaps: [],
         ris: [],
         nis: [],
-        isSucc: true,
+        isSucc: false,
         errMsg: '',
       },
     }
@@ -62,42 +63,58 @@ class Tree extends React.Component<{}, TreeState> {
 
   render() {
     return (
-      <Content id="tree-compute-component">
-        <Space direction='vertical' style={{ width: '50%' }}>
-          <Space direction='horizontal' align='start' style={{ display: "flex", marginTop: '0.5rem' }}>
-            <Space direction='vertical' size='large' style={{ display: "flex" }}>
-              <Content className="tree-setting-class">1. Dataset</Content>
-              <Content className="N-block">
-                <InputNumber controls={false} onChange={this.bindInputValue('N')}  
-                  addonBefore="# Entries" id="N-input" defaultValue={defaultN} />
-              </Content>
-              <Content className="N-block">
-                <InputNumber controls={false} onChange={this.bindInputValue('kvSize')}
-                  addonBefore='key-value size (Bytes)' id="kv-input" defaultValue={defaultKVSize} />
-              </Content>
+      <Content style={{ backgroundColor: 'white', paddingTop: '1rem' }}>
+        <Space id="tree-compute-component" direction='vertical' style={{ display: "flex" }} align='center'>
+          <Header style={{ fontSize: '3rem', fontWeight: 'bold', textAlign: 'center', backgroundColor: 'white' }}>Compute Your LSM-tree on-the-fly</Header>
+          <Content style={{ display: 'flex', justifyContent: 'center', fontSize: '20px' }}>
+            <div style={{ width: '60%' }}>
+              <i>
+                Configure the settings below according to your own environment and requirements. The calculator below simulates the algorithm stated above and generates a preview of the LSM-tree that meets your demand.
+              </i>
+              <div style={{ marginBottom: '0.5rem' }}></div>
+              <br/>
+              The <b>Dataset</b> option indicates the intrinsic properties of the data to be inserted into the LSM-tree.
+              The <b>Running Environment</b> option indicates the hardware and software environment where the LSM-tree is to be deployed. The page size is the size of I/O block in the storage system.
+              The <b>Main Memory Allocation</b> option sets the a specific amount of memory to the write buffer and the bloom filter.
+              The <b>Tree Structure</b> option allows you to specify the number of entries at the last level of the LSM-tree (i.e., NL).
+              </div>
+          </Content>
+          <Space direction='vertical' style={{}}>
+            <Space direction='horizontal' align='start' style={{ display: "flex", marginTop: '0.5rem' }}>
+              <Space direction='vertical' size='large' style={{ display: "flex" }}>
+                <Content className="tree-setting-class">1. Dataset</Content>
+                <Content className="N-block">
+                  <InputNumber controls={false} onChange={this.bindInputValue('N')}  
+                    addonBefore="# Entries" id="N-input" defaultValue={defaultN} />
+                </Content>
+                <Content className="N-block">
+                  <InputNumber controls={false} onChange={this.bindInputValue('kvSize')}
+                    addonBefore='key-value size (Bytes)' id="kv-input" defaultValue={defaultKVSize} />
+                </Content>
+              </Space>
+              <Space direction='vertical' style={{ display: 'flex'}} size='large'>
+                <Content className="tree-setting-class" style={{ textAlign: 'center' }}>2. Running Environment</Content>
+                <InputNumber controls={false} style={{ textAlign: 'right' }} 
+                  onChange={this.bindInputValue('blockSize')}
+                  addonBefore='Page Size' id='B-input' defaultValue={defaultBlockSize} />
+              </Space>
             </Space>
-            <Space direction='vertical' style={{ display: 'flex'}} size='large'>
-              <Content className="tree-setting-class" style={{ textAlign: 'center' }}>2. Running Environment</Content>
-              <InputNumber controls={false} style={{ textAlign: 'right' }} 
-                onChange={this.bindInputValue('blockSize')}
-                addonBefore='Page Size' id='B-input' defaultValue={defaultBlockSize} />
+            <Space direction='horizontal' align='start' style={{ display: "flex", marginTop: '0.5rem' }}>
+              <Space direction='vertical' size='large' style={{ display: "flex" }}>
+                <Content className="tree-setting-class">3. Main Memory Allocation</Content>
+                <InputNumber controls={false} style={{ textAlign: 'right' }} onChange={this.bindInputValue('F')} addonBefore='Buffer Size (Bytes)' id='M-input' defaultValue={defaultF} />
+                <InputNumber controls={false} style={{ textAlign: 'right' }} onChange={this.bindInputValue('bpk')} addonBefore='Bloom Filter (bits-per-key)' id='M-input' defaultValue={defaultBPK} />
+              </Space>
+              <Space direction='vertical' size='large' style={{ display: "flex" }}>
+                <Content className="tree-setting-class">4. Tree Structure</Content>
+                <InputNumber controls={false} onChange={this.bindInputValue('NL')} style={{ textAlign: 'right' }}
+                  addonBefore='# Entries at last level' id="NL-input" defaultValue={defaultNL} />
+              </Space>
             </Space>
+            <Button type='primary' size='large' style={{ width: '100%', marginTop: '1rem' }} onClick={this.computeStructure}>Compute</Button>
           </Space>
-          <Space direction='horizontal' align='start' style={{ display: "flex", marginTop: '0.5rem' }}>
-            <Space direction='vertical' size='large' style={{ display: "flex" }}>
-              <Content className="tree-setting-class">3. Main Memory Allocation</Content>
-              <InputNumber controls={false} style={{ textAlign: 'right' }} onChange={this.bindInputValue('F')} addonBefore='Buffer Size (Bytes)' id='M-input' defaultValue={defaultF} />
-              <InputNumber controls={false} style={{ textAlign: 'right' }} onChange={this.bindInputValue('bpk')} addonBefore='Bloom Filter (bits-per-key)' id='M-input' defaultValue={defaultBPK} />
-            </Space>
-            <Space direction='vertical' size='large' style={{ display: "flex" }}>
-              <Content className="tree-setting-class">4. Tree Structure</Content>
-              <InputNumber controls={false} onChange={this.bindInputValue('NL')} style={{ textAlign: 'right' }}
-                addonBefore='# Entries at last level' id="NL-input" defaultValue={defaultNL} />
-            </Space>
-          </Space>
-          <Button type='primary' size='large' style={{ width: '100%', marginTop: '1rem' }} onClick={this.computeStructure}>Compute</Button>
         </Space>
-        <TreeStructure {...this.state.outputState} />
+      <TreeStructure {...this.state.outputState} />
       </Content>
     );
   }
