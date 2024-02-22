@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Button, InputNumber, Space, Layout } from 'antd';
+import { Button, InputNumber, Space, Layout, Spin } from 'antd';
 
 import { TreeInputState, TreeOutputState } from '../../types';
 import TreeStructure from './TreeStructure';
@@ -20,6 +20,7 @@ const defaultBPK = 5;
 interface TreeState {
   inputState: TreeInputState;
   outputState: TreeOutputState;
+  isLoading: boolean;
 };
 
 class Tree extends React.Component<{}, TreeState> {
@@ -43,6 +44,7 @@ class Tree extends React.Component<{}, TreeState> {
         isSucc: false,
         errMsg: '',
       },
+      isLoading: false,
     }
   }
 
@@ -51,7 +53,7 @@ class Tree extends React.Component<{}, TreeState> {
     const { N, NL, kvSize, blockSize, F, bpk } = this.state.inputState;
     const cap = N * kvSize;
     const NLCap = NL * kvSize;
-    this.setState({ ...this.state, outputState: dp(cap, NLCap, F, blockSize, kvSize) });
+    this.setState({ ...this.state, outputState: dp(cap, NLCap, F, blockSize, kvSize), isLoading: false });
     console.log(this.state.outputState);
   }
 
@@ -62,6 +64,11 @@ class Tree extends React.Component<{}, TreeState> {
   }
 
   render() {
+    const treeStructure = {
+      ...this.state.outputState,
+      kvSize: this.state.inputState.kvSize,
+      blockSize: this.state.inputState.blockSize,
+    }
     return (
       <Content style={{ backgroundColor: 'white', paddingTop: '1rem' }}>
         <Space id="tree-compute-component" direction='vertical' style={{ display: "flex" }} align='center'>
@@ -111,10 +118,18 @@ class Tree extends React.Component<{}, TreeState> {
                   addonBefore='# Entries at last level' id="NL-input" defaultValue={defaultNL} />
               </Space>
             </Space>
-            <Button type='primary' size='large' style={{ width: '100%', marginTop: '1rem' }} onClick={this.computeStructure}>Compute</Button>
+            <Button type='primary' size='large' style={{ width: '100%', marginTop: '1rem' }} onClick={() => {
+              this.setState({ ...this.state, isLoading: true });
+              setTimeout(() => this.computeStructure(), 0.5);
+            }}>Compute</Button>
           </Space>
         </Space>
-      <TreeStructure {...this.state.outputState} />
+      {
+        this.state.isLoading? 
+        <Spin style={{ paddingTop: '1rem', paddingBottom: '1rem' }}spinning={this.state.isLoading} />
+        :
+        <TreeStructure { ...treeStructure }/>
+      }
       </Content>
     );
   }
