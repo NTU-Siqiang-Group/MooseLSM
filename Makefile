@@ -1304,6 +1304,9 @@ librocksdb_env_basic_test.a: $(OBJ_DIR)/env/env_basic_test.o $(LIB_OBJECTS) $(TE
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
+kv_server: $(OBJ_DIR)/tools/kv_server.o $(STATIC_LIBRARY)
+	$(AM_LINK) -ldrogon -ltrantor -lpthread -lssl -lcrypto -ldl -luuid -lz -ljsoncpp
+
 db_bench: $(OBJ_DIR)/tools/db_bench.o $(BENCH_OBJECTS) $(TESTUTIL) $(LIBRARY)
 	$(AM_LINK)
 
