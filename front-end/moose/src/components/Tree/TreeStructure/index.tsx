@@ -53,9 +53,9 @@ class TreeStructure extends React.Component<TreeStructureProps, TreeStructureSta
       });
       const rr = rns.reduce((acc, cur) => acc + cur, 0);
       const w = Number((
-        rns.map((ni, i): number => Number((this.props.ris[i] / ni).toFixed(2)))
+        rns.map((ni, i): number => Number((this.props.ris[i] / ni).toFixed(3)))
         .reduce((acc, cur) => acc + cur, 0) * this.props.kvSize / this.props.blockSize
-      ).toFixed(2));
+      ).toFixed(3));
       if (rrCost.length === 0) {
         rrCost.push(rr);
         wCost.push(w);
@@ -107,13 +107,13 @@ class TreeStructure extends React.Component<TreeStructureProps, TreeStructureSta
         ],
         outOfRange: {
           color: '#009999',
-          symbol: 'circle',
-          symbolSize: 7,
+          // symbol: 'circle',
+          // symbolSize: 5,
         },
         inRange: {
           color: '#FD0100',
-          symbol: 'star',
-          symbolSize: 8,
+          symbol: 'cicle',
+          symbolSize: 6,
         },
         show: true,
       },
