@@ -1,3 +1,4 @@
+# running command: docker run --rm -p 8080:8080 -d rocksdbenv:moose build/tools/kv_server --port=8080
 FROM ubuntu:20.04
 
 ADD . /App
@@ -18,13 +19,15 @@ RUN apt-get update && \
     libjsoncpp-dev \
     uuid-dev \
     openssl \
+    curl \
+    unzip \
+    ca-certificates \
     libssl-dev
-RUN git clone https://github.com/drogonframework/drogon && \
+RUN git clone https://github.com/drogonframework/drogon.git && \
     cd drogon && \
     git submodule update --init && \
     mkdir build && \ 
     cd build && \
-    cmake .. && \
-    make && make install && cd /App
-# RUN mkdir /usr/local/lib/pkgconfig && DISABLE_WARNING_AS_ERROR=1 make install -j10
-# RUN DISABLE_WARNING_AS_ERROR=1 USE_RTTI=1 make kv_server
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    make -j4 && make install && cd /App
+RUN mkdir build && cd build && cmake -DUSE_RTTI=1 -DCMAKE_BUILD_TYPE=Release .. && make kv_server -j20
