@@ -1,0 +1,13 @@
+# create the front-end for MooseKV
+apiVersion: v1
+kind: Pod
+metadata:
+  name: moose-frontend
+  labels:
+    app: moose-frontend
+spec:
+  containers:
+  - name: moose-frontend
+    image: buchuitoudegou/rocksdbenv:web
+    ports:
+      - containerPort: 3000
