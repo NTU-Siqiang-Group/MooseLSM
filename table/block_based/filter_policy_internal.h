@@ -271,6 +271,18 @@ class BloomFilterPolicy : public BloomLikeFilterPolicy {
   std::string GetId() const override;
 };
 
+class MonkeyBloomFilterPolicy : public BloomFilterPolicy {
+ public:
+  explicit MonkeyBloomFilterPolicy(const std::vector<double>& bits_per_level)
+        : BloomFilterPolicy(5), bits_per_level_(bits_per_level) {}
+    FilterBitsBuilder* GetBuilderWithContext(
+        const FilterBuildingContext&) const override;
+    static const char* kClassName();
+    const char* Name() const override { return kClassName(); }
+
+    std::vector<double> bits_per_level_;
+};
+
 // For NewRibbonFilterPolicy
 //
 // This is a user-facing policy that chooses between Standard128Ribbon

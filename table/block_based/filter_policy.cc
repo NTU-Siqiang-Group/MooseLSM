@@ -1828,6 +1828,27 @@ std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
   }
 }
 
+FilterBitsBuilder* MonkeyBloomFilterPolicy::GetBuilderWithContext(
+    const FilterBuildingContext& context) const {
+  assert(context.level_at_creation < int(bits_per_level_.size()));
+  int level = context.level_at_creation;
+  if (context.level_at_creation < 0) {
+    level = 0;
+  }
+  auto bloom_filter = std::unique_ptr<BloomFilterPolicy>(
+      new BloomFilterPolicy(bits_per_level_[level]));
+  return bloom_filter->GetBuilderWithContext(context);
+}
+
+const char* MonkeyBloomFilterPolicy::kClassName() {
+  return "rocksdb.internal.MonkeyBloomFilter";
+}
+
+const FilterPolicy* NewMonkeyFilterPolicy(
+    const std::vector<double>& bits_per_level) {
+  return new MonkeyBloomFilterPolicy(bits_per_level);
+}
+
 namespace {
 static ObjectLibrary::PatternEntry FilterPatternEntryWithBits(
     const char* name) {
@@ -1930,6 +1951,21 @@ static int RegisterBuiltinFilterPolicies(ObjectLibrary& library,
         guard->reset(
             NewBuiltinFilterPolicyWithBits<test::Standard128RibbonFilterPolicy>(
                 uri));
+        return guard->get();
+      });
+  library.AddFactory<const FilterPolicy>(
+      FilterPatternEntryWithBits(MonkeyBloomFilterPolicy::kClassName())
+          .AnotherName(MonkeyBloomFilterPolicy::kNickName())
+          .AddSuffix(":true"),
+      [](const std::string& uri, std::unique_ptr<const FilterPolicy>* guard,
+         std::string* /* errmsg */) {
+        const std::vector<std::string> vals = StringSplit(uri, ':');
+        std::vector<double> bits_per_level = ParseVectorDouble(vals[1]);
+        // NOTE: This case previously configured the deprecated block-based
+        // filter, but old ways of configuring that now map to full filter. We
+        // defer to the corresponding API to ensure consistency in case that
+        // change is reverted.
+        guard->reset(NewMonkeyFilterPolicy(bits_per_level));
         return guard->get();
       });
   size_t num_types;

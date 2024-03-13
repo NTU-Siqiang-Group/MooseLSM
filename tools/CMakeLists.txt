@@ -16,6 +16,7 @@ if(WITH_TOOLS)
     write_stress.cc
     db_repl_stress.cc
     dump/rocksdb_dump.cc
+    rw_test.cc
     dump/rocksdb_undump.cc)
   foreach(src ${TOOLS})
     get_filename_component(exename ${src} NAME_WE)

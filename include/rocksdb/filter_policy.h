@@ -208,4 +208,6 @@ const FilterPolicy* NewBloomFilterPolicy(
 FilterPolicy* NewRibbonFilterPolicy(double bloom_equivalent_bits_per_key,
                                     int bloom_before_level = 0);
 
+const FilterPolicy* NewMonkeyFilterPolicy(const std::vector<double>& bpks);
+
 }  // namespace ROCKSDB_NAMESPACE

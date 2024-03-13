@@ -426,6 +426,22 @@ std::vector<int> ParseVectorInt(const std::string& value) {
   return result;
 }
 
+std::vector<double> ParseVectorDouble(const std::string& value) {
+  std::vector<double> result;
+  size_t start = 0;
+  while (start < value.size()) {
+    size_t end = value.find(':', start);
+    if (end == std::string::npos) {
+      result.push_back(ParseDouble(value.substr(start)));
+      break;
+    } else {
+      result.push_back(ParseDouble(value.substr(start, end - start)));
+      start = end + 1;
+    }
+  }
+  return result;
+}
+
 std::vector<uint64_t> ParseVectorUint64(const std::string& value) {
   std::vector<uint64_t> result;
   size_t start = 0;
