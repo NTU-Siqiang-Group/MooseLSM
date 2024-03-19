@@ -1,4 +1,3 @@
-# running command: docker run --rm -p 8080:8080 -d rocksdbenv:moose build/tools/kv_server --port=8080
 FROM ubuntu:20.04
 
 ADD . /App

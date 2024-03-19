@@ -8,7 +8,7 @@ metadata:
 spec:
   containers:
   - name: moose-frontend
-    image: buchuitoudegou/rocksdbenv:web
+    image: buchuitoudegou/moosekv:frontend
     ports:
       - containerPort: 3000
 ---
