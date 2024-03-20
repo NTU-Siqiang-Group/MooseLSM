@@ -17,6 +17,8 @@ DEFINE_int32(bpk, 5, "Bits per key for filter");
 DEFINE_int32(kvsize, 1024, "Size of key-value pair");
 DEFINE_string(compaction_style, "default", "Compaction style");
 DEFINE_int32(prepare_entries, 10000000, "Number of entries to prepare");
+DEFINE_string(workload, "prepare", "prepare or test");
+DEFINE_string(path, "/tmp/db", "dbpath");
 
 inline std::string ItoaWithPadding(const uint64_t key, uint64_t size) {
   std::string key_str = std::to_string(key);
@@ -75,12 +77,17 @@ void PrepareDB(rocksdb::DB* db) {
   rocksdb::ReadOptions read_options;
   KeyGenerator key_gen(0, FLAGS_prepare_entries, 24, FLAGS_kvsize - 24);
   key_gen.SeekToFirst();
+  int idx = 0;
   while (key_gen.Next()) {
     auto status = db->Put(write_options, key_gen.Key(), key_gen.Value());
     if (!status.ok()) {
       std::cerr << "Failed to put key " << key_gen.Key() << " value "
                 << key_gen.Value() << std::endl;
       exit(1);
+    }
+    idx ++;
+    if (idx % 100000 == 0) {
+      std::cout << "prepared: " << idx << " entries" << std::endl;
     }
   }
 }
@@ -143,6 +150,9 @@ void BalancedWorkload(rocksdb::DB* db) {
       }
     }
     idx ++;
+    if (idx % 100000 == 0) {
+      std::cout << "conducted " << idx << " operations" << std::endl;
+    }
   }
 }
 
@@ -177,9 +187,24 @@ rocksdb::Options get_moose_options() {
   options.level_capacities = level_capacities;
   options.run_numbers = run_numbers;
 
-  uint64_t entry_num = std::accumulate(options.level_capacities.begin(), options.level_capacities.end(), 0UL);
-  uint64_t filter_memory = entry_num * FLAGS_bpk;
+  uint64_t entry_num = std::accumulate(options.level_capacities.begin(), options.level_capacities.end(), 0UL) / FLAGS_kvsize;
+  uint64_t filter_memory = entry_num * FLAGS_bpk / 8;
+
   auto bpks = rocksdb::MonkeyBpks(entry_num, filter_memory, options.run_numbers[0], options.level_capacities, FLAGS_kvsize);
+  // display options
+  std::cout << "level capacities: " << std::endl;
+  for (auto lvl_cap : options.level_capacities) {
+    std::cout << "  " << lvl_cap << std::endl;
+  }
+  std::cout << "run numbers: " << std::endl;
+  for (auto rn : options.run_numbers) {
+    std::cout << "  " << rn << std::endl;
+  }
+  std::cout << "bpks: " << std::endl;
+  for (auto bpk : bpks) {
+    std::cout << "  " << bpk << std::endl;
+  }
+  
   auto table_options = options.table_factory->GetOptions<rocksdb::BlockBasedTableOptions>();
   table_options->filter_policy.reset(rocksdb::NewMonkeyFilterPolicy(bpks));
 
@@ -199,12 +224,18 @@ int main(int argc, char** argv) {
     std::cerr << "Unknown compaction style: " << FLAGS_compaction_style << std::endl;
     return 1;
   }
-
+  options.level0_slowdown_writes_trigger = 4;
+  options.level0_stop_writes_trigger = 8;
   options.statistics = rocksdb::CreateDBStatistics();
-  auto status = rocksdb::DB::Open(options, "/tmp/rwtest", &db);
+  auto status = rocksdb::DB::Open(options, FLAGS_path, &db);
   if (!status.ok()) {
     std::cerr << "Failed to open db: " << status.ToString() << std::endl;
     return 1;
+  }
+  if (FLAGS_workload == "prepare") {
+    PrepareDB(db);
+  } else if (FLAGS_workload == "test") {
+    BalancedWorkload(db);
   }
   std::string stat;
   db->GetProperty("rocksdb.stats", &stat);
