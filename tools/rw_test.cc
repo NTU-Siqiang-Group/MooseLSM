@@ -48,12 +48,7 @@ class KeyGenerator {
   }
   void SeekToFirst() {
     for (uint64_t i = start_; i < end_; i++) {
-      if (i % 1000 == 0) {
-        keys_.push_back(9999999999);
-        keys_.push_back(0);
-      } else {
-        keys_.push_back(i);
-      }
+      keys_.push_back(i);
     }
     if (shuffle_) {
       auto rng = std::default_random_engine{};
@@ -82,7 +77,7 @@ void PrepareDB(rocksdb::DB* db) {
     auto status = db->Put(write_options, key_gen.Key(), key_gen.Value());
     if (!status.ok()) {
       std::cerr << "Failed to put key " << key_gen.Key() << " value "
-                << key_gen.Value() << std::endl;
+                << key_gen.Value() << ", because: " << status.ToString() << std::endl;
       exit(1);
     }
     idx ++;
@@ -169,6 +164,7 @@ rocksdb::Options get_default_options() {
 
 rocksdb::Options get_moose_options() {
   rocksdb::Options options;
+  options.compaction_style = rocksdb::kCompactionStyleMoose;
   options.create_if_missing = true;
   options.write_buffer_size = 2 << 20;
   options.level_compaction_dynamic_level_bytes = false;
@@ -184,8 +180,16 @@ rocksdb::Options get_moose_options() {
   for (auto& s : split_st) {
     run_numbers.push_back(std::stoi(s));
   }
-  options.level_capacities = level_capacities;
+  std::vector<uint64_t> physical_level_capacities;
+  for (int i = 0; i < (int)run_numbers.size(); i++) {
+    uint64_t run_size = level_capacities[i] / run_numbers[i];
+    for (int j = 0; j < (int)run_numbers[i]; j++) {
+      physical_level_capacities.push_back(run_size);
+    }
+  }
+  options.level_capacities = physical_level_capacities;
   options.run_numbers = run_numbers;
+  options.num_levels = std::accumulate(run_numbers.begin(), run_numbers.end(), 0);
 
   uint64_t entry_num = std::accumulate(options.level_capacities.begin(), options.level_capacities.end(), 0UL) / FLAGS_kvsize;
   uint64_t filter_memory = entry_num * FLAGS_bpk / 8;

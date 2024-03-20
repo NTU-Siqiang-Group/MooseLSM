@@ -23,6 +23,7 @@ DEFINE_string(compaction_style, "default", "Compaction style");
 
 rocksdb::Options get_moose_options() {
   rocksdb::Options options;
+  options.compaction_style = rocksdb::kCompactionStyleMoose;
   options.create_if_missing = true;
   options.write_buffer_size = 2 << 20;
   options.level_compaction_dynamic_level_bytes = false;
@@ -38,8 +39,16 @@ rocksdb::Options get_moose_options() {
   for (auto& s : split_st) {
     run_numbers.push_back(std::stoi(s));
   }
-  options.level_capacities = level_capacities;
+  std::vector<uint64_t> physical_level_capacities;
+  for (int i = 0; i < (int)run_numbers.size(); i++) {
+    uint64_t run_size = level_capacities[i] / run_numbers[i];
+    for (int j = 0; j < (int)run_numbers[i]; j++) {
+      physical_level_capacities.push_back(run_size);
+    }
+  }
+  options.level_capacities = physical_level_capacities;
   options.run_numbers = run_numbers;
+  options.num_levels = std::accumulate(run_numbers.begin(), run_numbers.end(), 0);
 
   uint64_t entry_num = std::accumulate(options.level_capacities.begin(), options.level_capacities.end(), 0UL) / FLAGS_kvsize;
   uint64_t filter_memory = entry_num * FLAGS_bpk / 8;
@@ -89,7 +98,13 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
     auto key = req->getParameter("key");
     std::cout << "get " << key << std::endl;
     // TODO: get value from kv store
-    auto value = "value";
+    std::string value;
+    auto status = db->Get(rocksdb::ReadOptions(), key, &value);
+    if (!status.ok()) {
+      auto resp = drogon::HttpResponse::newHttpJsonResponse({{ "status", "fail" }});
+      callback(resp);
+      return;
+    }
     Json::Value value_json;
     value_json["value"] = value;
     value_json["status"] = "ok";
@@ -102,8 +117,14 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
     auto value = req->getParameter("value");
     std::cout << "put " << key << " " << value << std::endl;
     // TODO: put key-value to kv store
-    auto resp = drogon::HttpResponse::newHttpJsonResponse({{ "status", "ok" }});
-    callback(resp);
+    auto status = db->Put(rocksdb::WriteOptions(), key, value);
+    if (!status.ok()) {
+      auto resp = drogon::HttpResponse::newHttpJsonResponse({{ "status", "fail" }});
+      callback(resp);
+    } else {
+      auto resp = drogon::HttpResponse::newHttpJsonResponse({{ "status", "ok" }});
+      callback(resp);
+    }
   }
   rocksdb::DB* db;
   rocksdb::Options opt;
