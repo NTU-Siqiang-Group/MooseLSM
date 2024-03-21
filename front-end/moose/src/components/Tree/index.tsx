@@ -58,8 +58,12 @@ class Tree extends React.Component<{}, TreeState> {
 
     try {
       // Make the API call to the backend
-      const response = await axios.post('http://127.0.0.1:5000/api/compute', {
-        cap, NLCap, F, blockSize, kvSize
+      const response = await axios.post('http://127.0.0.1:3001/api/dp', {
+        n: N, 
+        nl: NL, 
+        f: F, 
+        blocksize: blockSize, 
+        kvsize: kvSize
       });
 
       // Assuming the backend responds with the result in the same structure as the previous outputState
@@ -71,6 +75,28 @@ class Tree extends React.Component<{}, TreeState> {
     }
     // this.setState({ ...this.state, outputState: dp(cap, NLCap, F, blockSize, kvSize), isLoading: false });
     // console.log(this.state.outputState);
+  }
+
+  startServer = async () => {
+    const {  lvlRuns, nis } = this.state.outputState;
+    const {F, kvSize, bpk} = this.state.inputState;
+    try {
+      // Make the API call to the backend
+      const response = await axios.post('http://127.0.0.1:3001/api/create', {
+        lvlruns: lvlRuns,
+        nis: nis,
+        f: F,
+        kvsize: kvSize,
+        bpk: bpk,
+      });
+
+      // Assuming the backend responds with the result in the same structure as the previous outputState
+      console.log('Server response:', response.data);
+    } catch (error) {
+      console.error('Failed to start server:', error);
+      // Handle error (e.g., by setting an error message in state)
+    }
+
   }
 
   bindInputValue = (key: string) => {
@@ -146,6 +172,10 @@ class Tree extends React.Component<{}, TreeState> {
               this.setState({ ...this.state, isLoading: true });
               setTimeout(() => this.computeStructure(), 0.5);
             }}>Compute</Button>
+            <Button type='primary' size='large' style={{ width: '100%', marginTop: '1rem' }} onClick={() => {
+              this.setState({ ...this.state, isLoading: true });
+              setTimeout(() => this.startServer(), 0.5);
+            }}>Start Server</Button>
           </Space>
         </Space>
         {

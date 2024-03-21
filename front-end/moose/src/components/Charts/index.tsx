@@ -1,36 +1,68 @@
 import React, { useEffect, useState } from 'react';
-import { Column } from '@ant-design/charts';
+import { Line } from '@ant-design/charts';
 import axios from 'axios';
 import MooseFooter from '../Footer';
 
 const ChartsPage = () => {
-    const defaultData = [
-        { timestamp: '1997', value: 7 },
-        { timestamp: '1998', value: 9 },
-        { timestamp: '1999', value: 13 },
-        { timestamp: '2000', value: 15 },
-        { timestamp: '2001', value: 16 },
-        { timestamp: '2002', value: 18 },
-        { timestamp: '2003', value: 20 },
-        { timestamp: '2004', value: 22 },
-        { timestamp: '2005', value: 24 },
-        { timestamp: '2006', value: 26 },
-        { timestamp: '2007', value: 28 },
-        { timestamp: '2008', value: 30 },
-        { timestamp: '2009', value: 32 },
-        { timestamp: '2010', value: 34 },
-        { timestamp: '2011', value: 36 },
-        { timestamp: '2012', value: 38 },
-        { timestamp: '2013', value: 40 },
-    ];
+    // const defaultData = [
+    //     { timestamp: '1997', value: 7, category: 'Line 1' },
+    //     { timestamp: '1998', value: 9, category: 'Line 1' },
+    //     { timestamp: '1999', value: 13, category: 'Line 1' },
+    //     { timestamp: '2000', value: 15, category: 'Line 1' },
+    //     { timestamp: '2001', value: 16, category: 'Line 1' },
+    //     { timestamp: '2002', value: 18, category: 'Line 1' },
+    //     { timestamp: '2003', value: 20, category: 'Line 1' },
+    //     { timestamp: '2004', value: 22, category: 'Line 1' },
+    //     { timestamp: '2005', value: 24, category: 'Line 1' },
+    //     { timestamp: '2006', value: 26, category: 'Line 1' },
+    //     { timestamp: '2007', value: 28, category: 'Line 1' },
+    //     { timestamp: '2008', value: 30, category: 'Line 1' },
+    //     { timestamp: '2009', value: 32, category: 'Line 1' },
+    //     { timestamp: '2010', value: 34, category: 'Line 1' },
+    //     { timestamp: '2011', value: 36, category: 'Line 1' },
+    //     { timestamp: '2012', value: 38, category: 'Line 1' },
+    //     { timestamp: '2013', value: 40, category: 'Line 1' },
+    //     { timestamp: '1997', value: 8, category: 'Line 2' },
+    //     { timestamp: '1998', value: 15, category: 'Line 2' },
+    //     { timestamp: '1999', value: 23, category: 'Line 2' },
+    //     { timestamp: '2000', value: 35, category: 'Line 2' },
+    //     { timestamp: '2001', value: 40, category: 'Line 2' },
+    //     { timestamp: '2002', value: 45, category: 'Line 2' },
+    //     { timestamp: '2003', value: 50, category: 'Line 2' },
+    //     { timestamp: '2004', value: 55, category: 'Line 2' },
+    //     { timestamp: '2005', value: 60, category: 'Line 2' },
+    //     { timestamp: '2006', value: 65, category: 'Line 2' },
+    //     { timestamp: '2007', value: 70, category: 'Line 2' },
+    //     { timestamp: '2008', value: 75, category: 'Line 2' },
+    //     { timestamp: '2009', value: 80, category: 'Line 2' },
+    //     { timestamp: '2010', value: 85, category: 'Line 2' },
+    //     { timestamp: '2011', value: 90, category: 'Line 2' },
+    //     { timestamp: '2012', value: 60, category: 'Line 2' },
+    //     { timestamp: '2013', value: 50, category: 'Line 2' },
+    // ];
+    let defaultData: { timestamp: string, value: number, category: string }[] = [];
 
     const [data, setData] = useState(defaultData);
 
     useEffect(() => {
         const interval = setInterval(() => {
-            axios.get('http://127.0.0.1:5000/api/monitor')
+            axios.get('http://127.0.0.1:8080/KvServerCtrl/status')
                 .then(response => {
-                    setData(response.data);
+                    const newData = [
+                        {
+                            timestamp: response.data.get_ts.toString(),
+                            value: response.data.get,
+                            category: 'Line 1',
+                        },
+                        {
+                            timestamp: response.data.put_ts.toString(),
+                            value: response.data.put,
+                            category: 'Line 2',
+                        },
+                    ];
+
+                    // Append the new data to the existing data
+                    setData(prevData => [...prevData, ...newData]);
                 })
                 .catch(error => {
                     console.error('There was an error!', error);
@@ -47,18 +79,35 @@ const ChartsPage = () => {
         height: 400,
         xField: 'timestamp',
         yField: 'value',
-        colorField: '#c1decb',
+        // colorField: '#439798',
+        colorField: 'category',
+
+        point: {
+            shapeField: 'square',
+            sizeField: 4,
+        },
+        interaction: {
+            tooltip: {
+                marker: false,
+            },
+        },
+        style: {
+            lineWidth: 2,
+        },
+        smooth: true,
     };
+
+
 
     return (
         <div>
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', paddingTop: '50vh' }}>
-          <div style={{ paddingBottom: '50vh' }}>
-            <Column {...config} />
-          </div>
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', paddingTop: '50vh' }}>
+                <div style={{ paddingBottom: '50vh' }}>
+                    <Line {...config} />
+                </div>
+            </div>
+            <MooseFooter />
         </div>
-        <MooseFooter />
-      </div>
 
     );
 };

@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@ant-design/charts": "^2.0.3",
+    "@antv/g2plot": "^2.4.31",
     "@babel/core": "^7.16.0",
     "@fontsource/indie-flower": "^5.0.18",
     "@pmmmwh/react-refresh-webpack-plugin": "^0.5.3",
