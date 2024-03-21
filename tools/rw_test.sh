@@ -13,8 +13,8 @@ function test_moose() {
   # ${exe} --compaction_style=${compaction_style} --run_numbers=${run_numbers} --level_capacities=${level_capacities} --workload="prepare" --path=$moosepath
   # rm -rf ${moosepath}_backup
   # cp -r $moosepath ${moosepath}_backup
-  cp -r ${moosepath}_backup $moosepath
-  echo "    testing..."
+  cp -r "${moosepath}_backup" $moosepath
+  echo "    testing..." 
   ${exe} --compaction_style=${compaction_style} --run_numbers=${run_numbers} --level_capacities=${level_capacities} --workload="test" --path=$moosepath
 }
 
@@ -22,10 +22,11 @@ function test_default() {
   echo "testing default..."
   echo "    preparing db: $defaultpath"
   ${exe} --compaction_style="default" --workload="prepare" --path=$defaultpath
-  rm -rf ${defaultpath}_backup
-  cp -r $defaultpath ${defaultpath}_backup
-  # echo "    testing..."
-  # ${exe} --compaction_style="default" --workload="test" --path=$defaultpath
+  # rm -rf ${defaultpath}_backup
+  # cp -r $defaultpath ${defaultpath}_backup
+  cp -r "${defaultdb}_backup" $defaultdb
+  echo "    testing..."
+  ${exe} --compaction_style="default" --workload="test" --path=$defaultpath
 }
 
 function clean() {
@@ -33,7 +34,7 @@ function clean() {
   rm -rf $1
 }
 
-# clean $moosepath
-# test_moose
+clean $moosepath
+test_moose
 clean $defaultpath
 test_default
