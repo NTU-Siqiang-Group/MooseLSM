@@ -29,4 +29,4 @@ RUN git clone https://github.com/drogonframework/drogon.git && \
     cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release .. && \
     make -j4 && make install && cd /App
-RUN mkdir build && cd build && cmake -DUSE_RTTI=1 -DCMAKE_BUILD_TYPE=Release .. && make kv_server -j20
+RUN rm -rf build && mkdir build && cd build && cmake -DUSE_RTTI=1 -DCMAKE_BUILD_TYPE=Release .. && make kv_server -j20
