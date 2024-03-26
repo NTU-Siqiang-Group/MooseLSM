@@ -2,6 +2,7 @@
   "name": "moose",
   "version": "0.1.0",
   "private": true,
+  "proxy": "http://172.21.47.236:8080",
   "dependencies": {
     "@ant-design/charts": "^2.0.3",
     "@antv/g2plot": "^2.4.31",

@@ -56,15 +56,41 @@ class Tree extends React.Component<{}, TreeState> {
     const cap = N * kvSize;
     const NLCap = NL * kvSize;
 
+
     try {
-      // Make the API call to the backend
-      const response = await axios.post('http://127.0.0.1:3001/api/dp', {
-        n: N, 
-        nl: NL, 
-        f: F, 
-        blocksize: blockSize, 
-        kvsize: kvSize
-      });
+      // 在这个请求中单独设置配置
+      const response = await axios.post('http://172.21.47.236:1080/api/dp',
+
+        {
+          n: N * kvSize,
+          nl: NL,
+          f: F,
+          blocksize: blockSize,
+          kvsize: kvSize
+        },
+
+        {
+          withCredentials: true, // 允许跨域
+        });
+
+      // try {
+      //   // Make the API call to the backend
+      //   axios.defaults.withCredentials = true;  //允许跨域
+      //   //Content-type 响应头
+      //   axios.defaults.headers['Content-type']='application/x-www-form-urlencoded; charset=UTF-8';
+      //   // axios.defaults.headers['Access-Control-Allow-Origin']='*';
+      //   const response = await axios.post('http://172.21.47.236:1080/api/dp', {
+      //     n: N, 
+      //     nl: NL, 
+      //     f: F, 
+      //     blocksize: blockSize, 
+      //     kvsize: kvSize
+      //   },
+      // {headers: {
+      //   'Content-Type': 'application/x-www-form-urlencoded'
+      // },}
+
+      // );
 
       // Assuming the backend responds with the result in the same structure as the previous outputState
       this.setState({ ...this.state, outputState: response.data, isLoading: false });
@@ -78,11 +104,11 @@ class Tree extends React.Component<{}, TreeState> {
   }
 
   startServer = async () => {
-    const {  lvlRuns, nis } = this.state.outputState;
-    const {F, kvSize, bpk} = this.state.inputState;
+    const { lvlRuns, nis } = this.state.outputState;
+    const { F, kvSize, bpk } = this.state.inputState;
     try {
       // Make the API call to the backend
-      const response = await axios.post('http://127.0.0.1:3001/api/create', {
+      const response = await axios.post('http://172.21.47.236:1080/api/create', {
         lvlruns: lvlRuns,
         nis: nis,
         f: F,
