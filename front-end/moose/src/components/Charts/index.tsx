@@ -103,7 +103,6 @@ const ChartsPage = () => {
             title: 'Real-time System Throughput',
             style: { titleFontSize: 30 },
             
-            // className: 'my-chart-legend',
             
         },
         
