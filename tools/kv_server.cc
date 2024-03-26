@@ -184,7 +184,7 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
       value_json["get_ts"].append(ts);
     }
     std::vector<uint32_t> put_ts, put_latencies;
-    get_latencies_.GetAllLatency(put_ts, put_latencies);
+    put_latencies_.GetAllLatency(put_ts, put_latencies);
     value_json["put"] = Json::Value();
     for (auto lt : put_latencies) {
       value_json["put"].append(lt);
