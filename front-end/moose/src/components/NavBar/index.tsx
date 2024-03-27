@@ -9,15 +9,16 @@ import './bar.less';
 
 const NavBar = () => {
   return (
-    <Menu mode="horizontal">
-      <Menu.Item key="homepage" icon={<div />} >
+    <Menu mode="horizontal" style={{ display: 'flex', width: '100%', justifyContent: 'flex-start', height: '60px', lineHeight: '60px' }}>
+      <Menu.Item key="homepage" icon={<div />} style={{ fontSize: '25px', lineHeight: '60px', fontWeight: 'bold' }}>
         <Link to="/" style={{ color: 'black' }}>Homepage</Link>
       </Menu.Item>
 
-      <Menu.Item key="monitor" icon={<div />}>
-        <Link to="/ChartsPage" style={{ color: 'black' }}>Monitor</Link> 
+      <Menu.Item key="monitor" icon={<div />} style={{ fontSize: '25px', lineHeight: '60px', fontWeight: 'bold' }}>
+        <Link to="/SystemMonitor" style={{ color: 'black' }}>Monitor</Link> 
+        {/* <Link to="/SystemMonitor" style={{ color: 'black' }}>Monitor</Link>  */}
       </Menu.Item>
-      
+    
       {/* <Menu.Item key="alipay" icon={<div />}>
         Navigation Three
       </Menu.Item> */}

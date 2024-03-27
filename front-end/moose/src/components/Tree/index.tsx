@@ -23,6 +23,7 @@ interface TreeState {
   inputState: TreeInputState;
   outputState: TreeOutputState;
   isLoading: boolean;
+  isComputed: boolean;
 };
 
 class Tree extends React.Component<{}, TreeState> {
@@ -47,6 +48,7 @@ class Tree extends React.Component<{}, TreeState> {
         errMsg: '',
       },
       isLoading: false,
+      isComputed: false
     }
   }
 
@@ -125,6 +127,19 @@ class Tree extends React.Component<{}, TreeState> {
 
   }
 
+  deleteServer = async () => {
+    try {
+      // Make the API call to the backend
+      const response = await axios.delete('http://172.21.47.236:1080/api/delete');
+
+      // Assuming the backend responds with the result
+      console.log('Server response:', response.data);
+    } catch (error) {
+      console.error('Failed to delete server:', error);
+      // Handle error (e.g., by setting an error message in state)
+    }
+  }
+
   bindInputValue = (key: string) => {
     return (e: number | null) => {
       this.setState({ ...this.state, inputState: { ...this.state.inputState, [key]: e === null ? 0 : e } });
@@ -138,8 +153,8 @@ class Tree extends React.Component<{}, TreeState> {
       blockSize: this.state.inputState.blockSize,
     }
     return (
-      <Content style={{ backgroundColor: 'white', paddingTop: '1rem' }}>
-        <Space id="title" direction='vertical' style={{ fontFamily: "'Indie Flower', cursive", fontSize: "3rem", backgroundColor: '#badfca' }}>
+      <Content style={{ backgroundColor: 'white', paddingTop: '0rem' ,width: '100%' }}>
+        <Space id="title" direction='vertical' style={{ fontFamily: "'Indie Flower', cursive", fontSize: "3rem", backgroundColor: '#badfca' ,width: '100%' }}>
           <Content>Structural Designs <u>M</u>eet <u>O</u>ptimality:</Content>
           <Content>Exploring <u>O</u>ptimized LSM-tree <u>S</u>tructures in A Colossal Configuration Spac<u>e</u></Content>
           <Content id="moose-img">
@@ -149,7 +164,7 @@ class Tree extends React.Component<{}, TreeState> {
         <Space id="tree-compute-component" direction='vertical' style={{ display: "flex" }} align='center'>
           <Header style={{ fontSize: '3rem', fontWeight: 'bold', textAlign: 'center', backgroundColor: 'white' }}>Compute Your LSM-tree on-the-fly</Header>
           <Content style={{ display: 'flex', justifyContent: 'center', fontSize: '20px' }}>
-            <div style={{ width: '60%' }}>
+            <div style={{ width: '62%' }}>
               <i>
                 Configure the settings below according to your own environment and requirements. The calculator below simulates the algorithm stated above and generates a preview of the LSM-tree that meets your demand.
               </i>
@@ -195,21 +210,40 @@ class Tree extends React.Component<{}, TreeState> {
             </Space>
             {/* step 1 */}
             <Button type='primary' size='large' style={{ width: '100%', marginTop: '1rem' }} onClick={() => {
-              this.setState({ ...this.state, isLoading: true });
+              this.setState({ ...this.state, isLoading: true, isComputed: true });
               setTimeout(() => this.computeStructure(), 0.5);
             }}>Compute</Button>
-            <Button type='primary' size='large' style={{ width: '100%', marginTop: '1rem' }} onClick={() => {
-              this.setState({ ...this.state, isLoading: true });
-              setTimeout(() => this.startServer(), 0.5);
-            }}>Start Server</Button>
+
+
           </Space>
         </Space>
+
+
+
         {
           this.state.isLoading ?
             <Spin style={{ paddingTop: '1rem', paddingBottom: '1rem' }} spinning={this.state.isLoading} />
             :
             <TreeStructure {...treeStructure} />
         }
+        <Space id="tree-compute-component" direction='vertical' style={{ display: "flex" }} align='center'>
+          {this.state.isComputed && this.state.isLoading === false && (
+            <div style={{ width: '100%', marginTop: '1rem' }}>
+              <Space direction='horizontal'>
+                <Button type='primary' size='large' style={{ width: '100%' }} onClick={() => {
+                  this.setState({ ...this.state });
+                  setTimeout(() => this.startServer(), 0.5);
+                }}>Start Server</Button>
+
+                <Button type='primary' size='large' style={{ width: '100%' }} onClick={() => {
+                  this.setState({ ...this.state });
+                  setTimeout(() => this.deleteServer(), 0.5);
+                }}>Delete Server</Button>
+              </Space>
+            </div>
+          )}
+        </Space>
+
         <MooseFooter />
       </Content>
 

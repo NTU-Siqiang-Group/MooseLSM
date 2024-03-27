@@ -3,7 +3,7 @@ import logo from './logo.svg';
 import './App.css';
 import "@fontsource/indie-flower"; 
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import ChartsPage from './components/Charts/index';
+import SystemMonitor from './components/Charts/index';
 import HomePage from './components/Tree/index';
 
 import { Layout, ConfigProvider, Space } from 'antd';
@@ -36,12 +36,12 @@ function App() {
           }
         }}
       > 
-        <Layout style={{ minHeight: '100vh' }}>
+        <Layout style={{ minHeight: '150vh' }}>
           <Router>
             <NavBar />
             <Routes>
               <Route path="/" element={<HomePage />} /> 
-              <Route path="/ChartsPage" element={<ChartsPage />} />
+              <Route path="/SystemMonitor" element={<SystemMonitor />} />
               {/* Add other routes here */}
             </Routes>
           </Router>
