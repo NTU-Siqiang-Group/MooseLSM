@@ -24,8 +24,21 @@ DEFINE_int32(bpk, 5, "Bits per key for filter");
 DEFINE_int32(kvsize, 1024, "Size of key-value pair");
 DEFINE_string(compaction_style, "default", "Compaction style");
 DEFINE_string(path, "/tmp/kvserver", "path of db");
-DEFINE_uint32(max_return_stat, 100, "");
+DEFINE_uint32(max_return_stat, 500000, "");
 
+int CountMicroSecond(std::chrono::steady_clock::time_point start) {
+  auto end = std::chrono::steady_clock::now();
+  return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+}
+
+class Clock {
+ private:
+  decltype(std::chrono::steady_clock::now()) start = std::chrono::steady_clock::now();
+ public:
+  uint64_t Cur() const {
+    return CountMicroSecond(start);
+  }
+};
 
 rocksdb::Options get_moose_options() {
   rocksdb::Options options;
@@ -83,13 +96,13 @@ rocksdb::Options get_moose_options() {
 class MetricManager {
  public:
   MetricManager(std::string label): label_(label) {}
-  void AddRecord(uint32_t ts, uint64_t used_time) {
+  void AddRecord(uint64_t ts, uint64_t used_time) {
     mtx_.lock();
     timestamps_.push_back(ts);
     metrics_.push_back(used_time);
     mtx_.unlock();
   }
-  void GetAllMetric(std::vector<uint32_t>& ts, std::vector<uint64_t>& ret) {
+  void GetAllMetric(std::vector<uint64_t>& ts, std::vector<uint64_t>& ret) {
     mtx_.lock();
     ts = timestamps_;
     ret = metrics_;
@@ -100,7 +113,7 @@ class MetricManager {
   }
  private:
   std::string label_;
-  std::vector<uint32_t> timestamps_;
+  std::vector<uint64_t> timestamps_;
   std::vector<uint64_t> metrics_;
   std::mutex mtx_;
 };
@@ -116,11 +129,6 @@ class CompactionListener : public rocksdb::EventListener {
   std::shared_ptr<MetricManager> compaction_times_;
 };
 
-
-int CountMicroSecond(std::chrono::steady_clock::time_point start) {
-  auto end = std::chrono::steady_clock::now();
-  return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-}
 
 class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
  public:
@@ -161,7 +169,7 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
       ret["value"].append(it->value().ToString());
       it->Next();
     }
-    range_latencies_.AddRecord(std::time(nullptr), CountMicroSecond(start_sec));
+    range_latencies_.AddRecord(clk_.Cur(), CountMicroSecond(start_sec));
     delete it;
     ret["status"] = "ok";
     auto resp = drogon::HttpResponse::newHttpJsonResponse(ret);
@@ -173,7 +181,7 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
     std::string value;
     auto start_sec = std::chrono::steady_clock::now();
     auto status = db->Get(rocksdb::ReadOptions(), key, &value);
-    get_latencies_.AddRecord(std::time(nullptr), CountMicroSecond(start_sec));
+    get_latencies_.AddRecord(clk_.Cur(), CountMicroSecond(start_sec));
     if (!status.ok()) {
       Json::Value ret;
       ret["status"] = "fail";
@@ -196,7 +204,7 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
     auto value = req->getParameter("value");
     auto start_sec = std::chrono::steady_clock::now();
     auto status = db->Put(rocksdb::WriteOptions(), key, value);
-    put_latencies_.AddRecord(std::time(nullptr), CountMicroSecond(start_sec));
+    put_latencies_.AddRecord(clk_.Cur(), CountMicroSecond(start_sec));
     if (!status.ok()) {
       Json::Value ret;
       ret["status"] = "fail";
@@ -212,22 +220,25 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
   void status(const drogon::HttpRequestPtr& req,
              std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
     Json::Value value_json;
+
+    auto start_ts = clk_.Cur() - FLAGS_max_return_stat;
+
     value_json["get"] = Json::Value();
     value_json["get_ts"] = Json::Value();
-    FormatStatus(&get_latencies_, value_json["get_ts"], value_json["get"]);
+    FormatStatus(&get_latencies_, start_ts, value_json["get_ts"], value_json["get"]);
 
     value_json["put"] = Json::Value();
     value_json["put_ts"] = Json::Value();
-    FormatStatus(&put_latencies_, value_json["put_ts"], value_json["put"]);
+    FormatStatus(&put_latencies_, start_ts, value_json["put_ts"], value_json["put"]);
 
     value_json["range"] = Json::Value();
     value_json["range_ts"] = Json::Value();
-    FormatStatus(&range_latencies_, value_json["range_ts"], value_json["range"]);
+    FormatStatus(&range_latencies_, start_ts, value_json["range_ts"], value_json["range"]);
 
     value_json["compaction"] = Json::Value();
     value_json["compaction"]["ts"] = Json::Value();
     value_json["compaction"]["elapsed_time"] = Json::Value();
-    FormatStatus(&compaction_time_, value_json["compaction"]["ts"], value_json["compaction"]["elapsed_time"]);
+    FormatStatus(&compaction_time_, 0, value_json["compaction"]["ts"], value_json["compaction"]["elapsed_time"]);
 
     value_json["workload"]["get"] = get_latencies_.GetSize();
     value_json["workload"]["range"] = range_latencies_.GetSize();
@@ -257,18 +268,21 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
     auto resp = drogon::HttpResponse::newHttpJsonResponse(value_json);
     callback(resp);
   }
-  void FormatStatus(MetricManager* m, Json::Value& json_ts, Json::Value& json_metric) {
-    std::vector<uint32_t> ts_vec;
+  void FormatStatus(MetricManager* m, uint64_t start_ts, Json::Value& json_ts, Json::Value& json_metric) {
+    std::vector<uint64_t> ts_vec;
     std::vector<uint64_t> metrics;
     m->GetAllMetric(ts_vec, metrics);
-    size_t start = ts_vec.size() > FLAGS_max_return_stat ? ts_vec.size() - FLAGS_max_return_stat : 0;
-    for (size_t i = start; i < ts_vec.size(); i++) {
-      json_ts.append(ts_vec[start]);
+    auto it = std::lower_bound(ts_vec.begin(), ts_vec.end(), start_ts);
+    if (it == ts_vec.end()) {
+      return;
     }
-    for (size_t i = start; i < ts_vec.size(); i++) {
-      json_metric.append(metrics[i]);
+    uint64_t idx = it - ts_vec.begin();
+    for (; idx < ts_vec.size(); idx ++) {
+      json_ts.append(ts_vec[idx]);
+      json_metric.append(metrics[idx]);
     }
   }
+  Clock clk_;
   rocksdb::DB* db;
   rocksdb::Options opt;
   MetricManager get_latencies_, put_latencies_,
