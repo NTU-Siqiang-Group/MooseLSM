@@ -134,8 +134,7 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
  public:
   KvServerCtrl(): get_latencies_("get"), put_latencies_("put") {
     opt = get_moose_options();
-    rocksdb::EventListener* l = new CompactionListener(&compaction_time_);
-    opt.listeners.emplace_back(l);
+    opt.listeners.emplace_back(new CompactionListener(&compaction_time_));
     opt.statistics = rocksdb::CreateDBStatistics();
     auto status = rocksdb::DB::Open(opt, "/tmp/kvserver", &db);
     if (!status.ok()) {
@@ -238,7 +237,7 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
     value_json["compaction"] = Json::Value();
     value_json["compaction"]["ts"] = Json::Value();
     value_json["compaction"]["elapsed_time"] = Json::Value();
-    FormatStatus(&compaction_time_, 0, value_json["compaction"]["ts"], value_json["compaction"]["elapsed_time"]);
+    FormatStatus(&compaction_time_, 0, value_json["compaction"]["ts"], value_json["compaction"]["elapsed_time"], 20);
 
     value_json["workload"]["get"] = get_latencies_.GetSize();
     value_json["workload"]["range"] = range_latencies_.GetSize();
@@ -268,7 +267,7 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
     auto resp = drogon::HttpResponse::newHttpJsonResponse(value_json);
     callback(resp);
   }
-  void FormatStatus(MetricManager* m, uint64_t start_ts, Json::Value& json_ts, Json::Value& json_metric) {
+  void FormatStatus(MetricManager* m, uint64_t start_ts, Json::Value& json_ts, Json::Value& json_metric, int max_return=0) {
     std::vector<uint64_t> ts_vec;
     std::vector<uint64_t> metrics;
     m->GetAllMetric(ts_vec, metrics);
@@ -277,7 +276,7 @@ class KvServerCtrl : public drogon::HttpController<KvServerCtrl, false> {
       return;
     }
     uint64_t idx = it - ts_vec.begin();
-    for (; idx < ts_vec.size(); idx ++) {
+    for (; idx < ts_vec.size() && (max_return == 0 || idx < max_return); idx ++) {
       json_ts.append(ts_vec[idx]);
       json_metric.append(metrics[idx]);
     }

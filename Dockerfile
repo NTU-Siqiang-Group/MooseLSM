@@ -1,4 +1,4 @@
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
 ADD . /App
 WORKDIR /App
@@ -29,4 +29,4 @@ RUN git clone https://github.com/drogonframework/drogon.git && \
     cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release .. && \
     make -j4 && make install && cd /App
-RUN rm -rf build && mkdir build && cd build && cmake -DUSE_RTTI=1 -DCMAKE_BUILD_TYPE=Release .. && make kv_server -j20
+RUN rm -rf build && mkdir build && cd build && cmake -DFAIL_ON_WARNINGS=0 -DUSE_RTTI=1 -DCMAKE_BUILD_TYPE=Release .. && make kv_server -j20

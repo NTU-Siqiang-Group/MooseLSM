@@ -99,3 +99,4 @@ third-party/folly/
 .cache
 *.sublime-*
 tools/*.log
+*.log
