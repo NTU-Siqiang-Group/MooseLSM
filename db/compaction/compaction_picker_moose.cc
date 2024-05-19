@@ -135,33 +135,6 @@ struct MergeGroup {
   }
 };
 
-// uint64_t decodeKey(const std::string& key) {
-//   uint64_t result = 0;
-//   char* ptr = reinterpret_cast<char*>(&result);
-//   int bytes = sizeof(result);
-//   for (int i = 0; i < bytes; i++) {
-//     ptr[i] = key.data()[bytes - i];
-//   }
-//   return result;
-// }
-
-// void PrintCompactionDetailInfo(const std::vector<CompactionInputFiles>&
-// inputs) {
-//   std::cout << "Compaction ready - last level : " << inputs.back().level <<
-//   std::endl; for (auto input : inputs) {
-//     std::cout << "  Level " << input.level << ", file number: " <<
-//     input.files.size() << std::endl; uint64_t total_size = 0; for (auto file
-//     : input.files) {
-//       // std::cout << "    file #" << file->fd.GetNumber() << " " <<
-//       decodeKey(file->smallest.user_key().ToString()) << " - " <<
-//       decodeKey(file->largest.user_key().ToString()) << std::endl; total_size
-//       += file->fd.file_size;
-//     }
-//     std::cout << "    total size: " << total_size << " bytes" << std::endl;
-//     std::cout << std::endl;
-//   }
-// }
-
 uint32_t MooseCompactionBuilder::GetPathId(
     const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, int level) {
@@ -242,10 +215,6 @@ Compaction* MooseCompactionBuilder::PickCompaction() {
   int output_logical_level = ComputeLogicalLevel(output_level_);
   uint64_t output_file_size = std::pow(2, output_logical_level - 1) *
                               mutable_cf_options_.write_buffer_size;
-  // uint64_t output_file_size = 10UL * (1<<20);
-  // if (output_level_ >= 10) {
-  //   PrintCompactionDetailInfo(compaction_inputs_);
-  // }
   auto c = new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
       std::move(compaction_inputs_), output_level_, output_file_size,
@@ -303,6 +272,9 @@ bool MooseCompactionBuilder::PickFileToCompact() {
       mutable_cf_options_.run_numbers.begin() + target_logical_level, 0);
   int output_end_level = output_start_level +
                          mutable_cf_options_.run_numbers[target_logical_level];
+  // dynamic compaction enables to compact to an existing run
+  // otherwise, can only compact to empty level
+  bool is_dynamic_compaction = vstorage_->EnableDynamicRun(target_logical_level, mutable_cf_options_);
   for (int i = output_end_level - 1; i >= output_start_level; i--) {
     auto files = vstorage_->LevelFiles(i);
     uint64_t level_size = 0;
@@ -313,21 +285,17 @@ bool MooseCompactionBuilder::PickFileToCompact() {
       }
       level_size += f->compensated_file_size;
     }
-    if (level_size < level_max_size) {
+    // non dynamic compaction: the physical level should be empty
+    // dynamic compaction: the size of the physical level should be smaller than its capacity
+    if ((!is_dynamic_compaction && level_size == 0) || (is_dynamic_compaction && level_size < level_max_size)) {
       output_level_ = i;
       CompactionInputFiles input;
       input.level = i;
-      std::vector<FileMetaData*> output_level_files;
-      vstorage_->GetOverlappingInputs(i, &smallest, &largest, &input.files);
-      if (!input.empty()) {
-        compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_, &input);
-      }
-      for (auto f : input.files) {
+      for (auto f : files) {
         if (!f->being_compacted) {
-          output_level_files.push_back(f);
+          input.files.push_back(f);
         }
       }
-      input.files = output_level_files;
       output_level_inputs_ = input;
       break;
     }
@@ -344,74 +312,16 @@ bool MooseCompactionBuilder::PickFilesForLevel(InternalKey* smallest,
       mutable_cf_options_.run_numbers.begin() + logical_level, 0);
   int end_physical_level =
       start_physical_level + mutable_cf_options_.run_numbers[logical_level];
-  const auto comparator = vstorage_->InternalComparator()->user_comparator();
-  auto cmp = [&](std::pair<FileMetaData*, uint32_t> left,
-                 std::pair<FileMetaData*, uint32_t> right) {
-    return comparator->Compare(left.first->smallest.user_key(),
-                               right.first->smallest.user_key()) > 0;
-  };
-  std::priority_queue<std::pair<FileMetaData*, uint32_t>,
-                      std::vector<std::pair<FileMetaData*, uint32_t>>,
-                      decltype(cmp)>
-      min_key_queue(cmp);
   for (int i = start_physical_level; i < end_physical_level; i++) {
-    if (vstorage_->LevelFiles(i).size() > 0) {
-      auto file = vstorage_->LevelFiles(i).at(0);
-      min_key_queue.push({file, i});
-    }
-  }
-  if (min_key_queue.size() == 0) {
-    return false;
-  }
-  // make intersected files at logical level into group
-  std::vector<std::shared_ptr<MergeGroup>> groups;
-  std::vector<int> sst_idxs(end_physical_level, 0);
-  auto current = std::make_shared<MergeGroup>(comparator);
-  while (!min_key_queue.empty()) {
-    // BFS
-    auto f = min_key_queue.top().first;
-    auto phy_lvl = min_key_queue.top().second;
-    min_key_queue.pop();
-    int idx = sst_idxs[phy_lvl];
-    if (current->Empty() || current->IsIntersected(f)) {
-      current->AddFile(f, phy_lvl);
-    } else {
-      groups.push_back(current);
-      current.reset(new MergeGroup(comparator));
-      current->AddFile(f, phy_lvl);
-    }
-    if ((int)vstorage_->LevelFiles(phy_lvl).size() > idx + 1) {
-      // proceed the index point at phy_lvl
-      auto new_file = vstorage_->LevelFiles(phy_lvl).at(idx + 1);
-      min_key_queue.push({new_file, phy_lvl});
-      sst_idxs[phy_lvl]++;
-    }
-  }
-  groups.push_back(current);
-  // if (logical_level >= 3) {
-  //   std::cout << "grouping logical level " << logical_level << " : " <<
-  //   groups.size() << std::endl;
-  // }
-  // randomly choose one group to compact
-  int compact_idx = rand() % groups.size();
-  auto merge_group = groups[compact_idx];
-  *smallest = merge_group->smallest;
-  *largest = merge_group->largest;
-  std::unordered_map<int, CompactionInputFiles> comp_files;
-  for (auto f : merge_group->order_files) {
-    int phy_lvl = merge_group->files[f];
-    if (!f->being_compacted) {
-      if (comp_files.find(phy_lvl) == comp_files.end()) {
-        CompactionInputFiles input;
-        input.level = phy_lvl;
-        comp_files[phy_lvl] = input;
+    auto files = vstorage_->LevelFiles(i);
+    CompactionInputFiles fs;
+    fs.level = i;
+    for (auto f : files) {
+      if (!f->being_compacted) {
+        fs.files.push_back(f);
       }
-      comp_files[phy_lvl].files.push_back(f);
     }
-  }
-  for (auto it : comp_files) {
-    auto& comp_input = it.second;
-    compaction_inputs_.push_back(comp_input);
+    compaction_inputs_.push_back(fs);
   }
   return true;
 }

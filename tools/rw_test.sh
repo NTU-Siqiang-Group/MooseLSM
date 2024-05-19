@@ -9,22 +9,22 @@ function test_moose() {
   run_numbers="1,4,5,4"
   level_capacities="2097152,39845888,1075838976,21516779520"
   compaction_style="moose"
-  # echo "    preparing db: $moosepath"
-  # ${exe} --compaction_style=${compaction_style} --run_numbers=${run_numbers} --level_capacities=${level_capacities} --workload="prepare" --path=$moosepath
-  # rm -rf ${moosepath}_backup
-  # cp -r $moosepath ${moosepath}_backup
-  cp -r "${moosepath}_backup" $moosepath
+  if [[ ! -d ${moosepath}_backup ]]; then
+    echo "    preparing db: ${moosepath}_backup"
+    ${exe} --compaction_style=${compaction_style} --run_numbers=${run_numbers} --level_capacities=${level_capacities} --workload="prepare" --path=${moosepath}_backup
+  fi
+  cp -r ${moosepath}_backup $moosepath 
   echo "    testing..." 
   ${exe} --compaction_style=${compaction_style} --run_numbers=${run_numbers} --level_capacities=${level_capacities} --workload="test" --path=$moosepath
 }
 
 function test_default() {
   echo "testing default..."
-  echo "    preparing db: $defaultpath"
-  ${exe} --compaction_style="default" --workload="prepare" --path=$defaultpath
-  # rm -rf ${defaultpath}_backup
-  # cp -r $defaultpath ${defaultpath}_backup
-  cp -r "${defaultdb}_backup" $defaultdb
+  if [[ ! -d ${defaultpath}_backup ]]; then
+    echo "    preparing db: ${defaultpath}_backup"
+    ${exe} --compaction_style="default" --workload="prepare" --path=${defaultpath}_backup
+  fi
+  cp -r ${defaultpath}_backup $defaultpath
   echo "    testing..."
   ${exe} --compaction_style="default" --workload="test" --path=$defaultpath
 }
@@ -34,7 +34,7 @@ function clean() {
   rm -rf $1
 }
 
-clean $moosepath
-test_moose
+# clean $moosepath
+# test_moose
 clean $defaultpath
 test_default

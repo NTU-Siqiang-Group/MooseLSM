@@ -191,10 +191,12 @@ rocksdb::Options get_moose_options() {
   options.run_numbers = run_numbers;
   options.num_levels = std::accumulate(run_numbers.begin(), run_numbers.end(), 0);
 
-  uint64_t entry_num = std::accumulate(options.level_capacities.begin(), options.level_capacities.end(), 0UL) / FLAGS_kvsize;
+  uint64_t entry_num = std::accumulate(options.level_capacities.begin() + 1, options.level_capacities.end(), 0UL) / FLAGS_kvsize;
   uint64_t filter_memory = entry_num * FLAGS_bpk / 8;
 
-  auto bpks = rocksdb::MonkeyBpks(entry_num, filter_memory, options.run_numbers[0], options.level_capacities, FLAGS_kvsize);
+  auto tmp = rocksdb::MonkeyBpks(entry_num, filter_memory, options.level_capacities, FLAGS_kvsize);
+  std::vector<double> bpks = {(double)FLAGS_bpk};
+  std::copy(tmp.begin(), tmp.end(), std::back_inserter(bpks));
   // display options
   std::cout << "level capacities: " << std::endl;
   for (auto lvl_cap : options.level_capacities) {
@@ -227,6 +229,10 @@ int main(int argc, char** argv) {
   } else {
     std::cerr << "Unknown compaction style: " << FLAGS_compaction_style << std::endl;
     return 1;
+  }
+  if (FLAGS_workload == "test") {
+    options.use_direct_io_for_flush_and_compaction = true;
+    options.use_direct_reads = true;
   }
   options.level0_slowdown_writes_trigger = 4;
   options.level0_stop_writes_trigger = 8;

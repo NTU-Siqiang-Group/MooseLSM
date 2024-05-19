@@ -612,6 +612,7 @@ class VersionStorageInfo {
   bool RangeMightExistAfterSortedRun(const Slice& smallest_user_key,
                                      const Slice& largest_user_key,
                                      int last_level, int last_l0_idx);
+  bool EnableDynamicRun(int logical_level, const MutableCFOptions& options);
 
  private:
   void ComputeCompensatedSizes();

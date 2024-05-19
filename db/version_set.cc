@@ -3397,6 +3397,18 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
 }
 }  // anonymous namespace
 
+bool VersionStorageInfo::EnableDynamicRun(int logical_level, const MutableCFOptions& options) {
+  assert(logical_level < options.run_numbers.size());
+  int start_physical_level = std::accumulate(options.run_numbers.begin(), options.run_numbers.begin() + logical_level, 0);
+  if (start_physical_level - 1 <= 0) {
+    return false;
+  }
+  uint64_t last_level_run_size = options.level_capacities[start_physical_level - 1];
+  uint64_t cur_level_run_size = options.level_capacities[start_physical_level];
+  int last_level_run_num = options.run_numbers[logical_level - 1];
+  return (last_level_run_num * last_level_run_size) != cur_level_run_size;
+}
+
 void VersionStorageInfo::ComputeCompactionScoreForMoose(
     const ImmutableOptions& immutable_options,
     const MutableCFOptions& mutable_cf_options) {
@@ -3419,9 +3431,13 @@ void VersionStorageInfo::ComputeCompactionScoreForMoose(
   for (size_t i = 1; i < logical_run_numbers.size(); i++) {
     int run_number = logical_run_numbers[i];
     uint64_t total_size = 0;
+    int cur_run_num = 0;
     for (int j = 0; j < run_number; j++) {
       int lvl = lvl_idx + j;
       auto lvl_files = files_[lvl];
+      if (lvl_files.size() > 0) {
+        cur_run_num ++;
+      }
       for (auto* f : lvl_files) {
         if (!f->being_compacted) {
           total_size += f->compensated_file_size;
@@ -3433,6 +3449,10 @@ void VersionStorageInfo::ComputeCompactionScoreForMoose(
         mutable_cf_options.level_capacities.begin() + lvl_idx + run_number,
         0UL);
     score = (double)total_size / logical_max_cap;
+    bool is_dynamic_compaction = EnableDynamicRun(i, mutable_cf_options);
+    if (!is_dynamic_compaction) {
+      score = std::max(score, (double)cur_run_num / run_number);
+    }
     for (int j = 0; j < run_number; j++) {
       compaction_level_[j + lvl_idx] = lvl_idx + j;
       compaction_score_[j + lvl_idx] = score;
