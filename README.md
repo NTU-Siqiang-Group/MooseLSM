@@ -9,22 +9,15 @@ By doing the relaxation above, users are able to implement various kinds of acad
 In addition, we also propose a decent method for you to achieve an optimal tradeoff in our [paper](https://siqiangluo.com/docs/SIGMOD24_MOOSE_Camera___Junfeng___Fan.pdf).
 Here is the bibtex for you to refer
 ```
-@article{10.1145/3654978,
-author = {Liu, Junfeng and Wang, Fan and Mo, Dingheng and Luo, Siqiang},
-title = {Structural Designs Meet Optimality: Exploring Optimized LSM-tree Structures in a Colossal Configuration Space},
-year = {2024},
-issue_date = {June 2024},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
-volume = {2},
-number = {3},
-url = {https://doi.org/10.1145/3654978},
-doi = {10.1145/3654978},
-journal = {Proc. ACM Manag. Data},
-month = {may},
-articleno = {175},
-numpages = {26},
-keywords = {LSM-tree, data structure, optimization}
+@article{liu2024structural,
+  title={Structural Designs Meet Optimality: Exploring Optimized LSM-tree Structures in A Colossal Configuration Space},
+  author={Liu, Junfeng and Wang, Fan and Mo, Dingheng and Luo, Siqiang},
+  journal={Proceedings of the ACM on Management of Data},
+  volume={2},
+  number={3},
+  pages={1--26},
+  year={2024},
+  publisher={ACM New York, NY, USA}
 }
 ```
 
