@@ -28,5 +28,38 @@ keywords = {LSM-tree, data structure, optimization}
 }
 ```
 
+## build
+Dependencies:
+- gflags
+- cmake
+- gcc/g++
+
+To build the library of MooseLSM, just run:
+```
+mkdir build
+cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make install
+```
+
+To embed the key-value store in your c++ application:
+```c++
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
+
+...
+rocksdb::Options options;
+options.level_capacities = {...}; // a vector of capacities
+options.run_numbers = {...}; // a vector of run numbers
+auto status = rocksdb::Open(options, "<path-to-your-db>", &db);
+if (!status.ok()) {
+  // fail to open the db
+  exit(1);
+}
+// do the workload with db
+db->close();
+delete db;
+```
+
 ## License
 Moose is licensed under [NTUITIVE PTE LTD Dual License](LICENSE).
