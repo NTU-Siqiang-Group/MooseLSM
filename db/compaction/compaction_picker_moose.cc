@@ -1,4 +1,5 @@
 #include "db/compaction/compaction_picker_moose.h"
+// #include <iostream>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -94,7 +95,8 @@ class MooseCompactionBuilder {
     }
     // 2. check other levels
     int prev_run_number = 1;
-    for (size_t i = 1; i < atomic_controller_->run_numbers.size(); i++) {
+    // do not check the last level
+    for (size_t i = 1; i < atomic_controller_->run_numbers.size() - 1; i++) {
       uint64_t cur_level_size = 0;
       uint64_t level_capacity = atomic_controller_->run_numbers[i] * atomic_controller_->run_sizes[i];
       int cur_level_run_number = 0;
@@ -115,7 +117,7 @@ class MooseCompactionBuilder {
       if (atomic_controller_->run_numbers[i] == atomic_controller_->size_ratios[i]) {
         cur_level_score = std::max(cur_level_score, (double)cur_level_run_number / atomic_controller_->run_numbers[i]);
       }
-      if (cur_level_score > 1.0) {
+      if (cur_level_score >= 1.0) {
         // pick the bottommost level to compact
         score = cur_level_score;
         start_logical_level = i;
@@ -123,7 +125,8 @@ class MooseCompactionBuilder {
       prev_run_number += atomic_controller_->run_numbers[i];
     }
     start_logical_level_ = start_logical_level;
-    return score > 1.0;
+    // std::cout << "Compaction required: " << score << ", start from " << start_logical_level_ << std::endl;
+    return score >= 1.0;
   }
 
   void SetupCompaction() {
@@ -185,6 +188,20 @@ class MooseCompactionBuilder {
         // no need to collect the files at target level
         // the whole level is empty
         output_level_ = last_empty_run;
+        return;
+      }
+      if (last_empty_run == -1) {
+        // the whole level is full
+        output_level_ = target_end_physical_level - 1;
+        auto last_run_files = vstorage_->LevelFiles(output_level_);
+        for (auto file : last_run_files) {
+          if (file->being_compacted) {
+            compaction_inputs_.clear();
+            return;
+          }
+          output_level_inputs_.files.push_back(file);
+        }
+        output_level_inputs_.level = output_level_;
         return;
       }
       auto& prev_level_files = vstorage_->LevelFiles(last_empty_run + 1);

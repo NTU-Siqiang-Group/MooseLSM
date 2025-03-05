@@ -14,6 +14,8 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
+// #include "rocksdb/dyncompactioner.h"
+#include "rocksdb/dyncompactionerv2.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -32,21 +34,7 @@ struct CompactionOptionsFlex {
 };
 
 struct AtomicCompactionController {
- private:
-  std::atomic<bool> val;
-  std::vector<int> range_lookup_ops;
-  std::vector<int> update_ops;
-  int window_size; // operation numbers
-  int intensity; // in us
-  void PrepareWorkload(const std::vector<int>& r, const std::vector<int>& u) {
-    range_lookup_ops = r;
-    update_ops = u;
-  }
-  void Set(bool newVal) {
-    val.store(newVal);
-  }
- public:
-   /*
+  /*
     For Moose only
   */
   std::vector<double> size_ratios;
@@ -56,53 +44,30 @@ struct AtomicCompactionController {
   /* For DynamicCompaction */
   int searchDepth;
   uint64_t buffer_size;
-  int walkDepth = 20;
-  double gamma;
+  std::atomic<int> cur_win_idx{0};
+  std::atomic<bool> need_compaction{true};
 
-  AtomicCompactionController(int window_size, int intensity): window_size(window_size), intensity(intensity) {
-    val.store(false);
-  }
+  DynCompactionV2::DynamicCompactionerV2* compactioner = nullptr;
 
-  void InitForDynamicCompaction(int searchDepth=5, uint64_t buffer_size=2UL * (1<<20), double gamma=0.8, int walk_depth=20) {
-    this->searchDepth = searchDepth;
-    this->buffer_size = buffer_size;
-    this->gamma = gamma;
-    this->walkDepth = walk_depth;
+  AtomicCompactionController(uint64_t buff_size=2UL*(1<<20)):
+    buffer_size(buff_size),
+    cur_win_idx(0) {}
+
+  void InitForDynamicCompaction(int max_level) {
   }
   void InitForMoose(const std::vector<double>& size_ratios, const std::vector<uint64_t>& run_numbers, const std::vector<uint64_t>& run_sizes) {
     this->size_ratios = size_ratios;
     this->run_numbers = run_numbers;
     this->run_sizes = run_sizes;
   }
-  bool Get() const {
-    return val.load();
-  }
-  int GetWindowDuration() const {
-    return window_size * intensity; // in us
-  }
-  int GetRangeLookupOp(int timestamp) {
-    if (timestamp >= range_lookup_ops.size()) {
-      return 0;
-    }
-    return range_lookup_ops[timestamp];
-  }
-  int GetUpdateOp(int timestamp) {
-    if (timestamp >= update_ops.size()) {
-      return 0;
-    }
-    return update_ops[timestamp];
-  }
-
-  int GetWorkloadSize() {
-    return range_lookup_ops.size();
-  }
-
-  void PrepareCompaction(const std::vector<int>& r, const std::vector<int>& u) {
-    PrepareWorkload(r, u);
-    Set(true);
+  bool NeedsCompaction() {
+    return need_compaction.load();
   }
   void HandleCompaction() {
-    Set(false);
+    need_compaction.store(false);
+  }
+  void SetCompaction() {
+    need_compaction.store(true);
   }
 };
 

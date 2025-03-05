@@ -2181,6 +2181,8 @@ struct IngestExternalFileOptions {
   //
   // XXX: "bottommost" is obsolete/confusing terminology to refer to last level
   bool fail_if_not_bottommost_level = false;
+
+  int ingest_level = -1;
 };
 
 enum TraceFilterType : uint64_t {

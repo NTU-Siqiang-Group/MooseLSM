@@ -2,8 +2,8 @@
 
 #include "dynamic_test_util.h"
 #include "rocksdb/statistics.h"
-
-#include "ruskey/db.h"
+#include "rocksdb/table.h"
+#include "rocksdb/filter_policy.h"
 
 #include <iostream>
 #include <string>
@@ -11,14 +11,14 @@
 
 DEFINE_uint64(buffer_size, 2 * (1<<20), "buffer size");
 DEFINE_string(compaction_style, "dynamic", "compaction style");
-DEFINE_uint64(window_size, 10000, "number of operations in a window");
 DEFINE_uint64(window_num, 100, "number of windows");
-DEFINE_uint64(intensity, 200, "intensity of operations (in us)");
 DEFINE_string(size_ratios, "", "size ratios for Moose");
 DEFINE_string(run_numbers, "", "run numbers for Moose");
-DEFINE_int32(search_depth, 5, "search depth for DynamicCompaction");
-DEFINE_int32(walk_depth, 20, "walk depth for DynamicCompaction");
-DEFINE_double(gamma, 0.8, "gamma for DynamicCompaction");
+DEFINE_int32(search_depth, 100, "search depth for DynamicCompaction");
+DEFINE_int32(key_size, 24, "key size");
+DEFINE_int32(value_size, 1000, "value size");
+DEFINE_int32(range_lookup_len, 16, "range lookup length");
+DEFINE_string(workload_file, "", "workload file");
 
 template <typename T>
 std::vector<T> ParseStringToNumbers(const std::string& src) {
@@ -41,14 +41,19 @@ std::vector<T> ParseStringToNumbers(const std::string& src) {
 rocksdb::Options GetBasedOptions() {
   rocksdb::Options opt;
   opt.statistics = rocksdb::CreateDBStatistics();
-  opt.write_buffer_size = FLAGS_buffer_size * 2;
+  opt.write_buffer_size = FLAGS_buffer_size;
   opt.create_if_missing = true;
   opt.num_levels = 4;
   opt.force_consistency_checks = false;
   opt.compression = rocksdb::kNoCompression;
-  opt.use_direct_io_for_flush_and_compaction = true;
-  opt.use_direct_reads = true;
-  opt.comp_controller = new rocksdb::AtomicCompactionController(FLAGS_window_size, FLAGS_intensity);
+  // opt.use_direct_io_for_flush_and_compaction = true;
+  opt.max_write_buffer_number = 10;
+  // opt.use_direct_reads = true;
+  opt.comp_controller = new rocksdb::AtomicCompactionController(FLAGS_buffer_size);
+  // get block based table options
+  auto table_options = opt.table_factory->GetOptions<rocksdb::BlockBasedTableOptions>();
+  table_options->filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+
   return opt;
 }
 
@@ -75,18 +80,19 @@ rocksdb::Options GetMooseOptions() {
 rocksdb::Options GetDynamicOptions() {
   rocksdb::Options opt = GetBasedOptions();
   opt.compaction_style = rocksdb::kCompactionStyleDynamic;
+  opt.write_buffer_size = FLAGS_buffer_size;
+  opt.delayed_write_rate = 0;
 
   opt.level0_stop_writes_trigger = 0x7fffffff;
   opt.level0_slowdown_writes_trigger = 0x7fffffff;
-  // opt.max_write_buffer_number = 10;
+  // opt.level0_slowdown_writes_trigger = 30;
 
   return opt;
 }
 
 rocksdb::Options GetLevelingOptions() {
   rocksdb::Options opt = GetBasedOptions();
-  opt.use_direct_io_for_flush_and_compaction = true;
-  opt.use_direct_reads = true;
+  opt.max_bytes_for_level_base = FLAGS_buffer_size * opt.max_bytes_for_level_multiplier; // T * F
   opt.level_compaction_dynamic_level_bytes = false;
 
   return opt;
@@ -101,7 +107,6 @@ int main(int argc, char** argv) {
   std::shared_ptr<DynamicTestLogger> logger = std::make_shared<DynamicTestLogger>();
   if (FLAGS_compaction_style == "dynamic") {
     opt = GetDynamicOptions();
-    opt.comp_controller->InitForDynamicCompaction(FLAGS_search_depth, FLAGS_buffer_size, FLAGS_gamma, FLAGS_walk_depth);
   } else if (FLAGS_compaction_style == "leveling") {
     opt = GetLevelingOptions();
   } else if (FLAGS_compaction_style == "moose") {
@@ -110,17 +115,33 @@ int main(int argc, char** argv) {
     std::cout << "unknown compaction style: " << FLAGS_compaction_style << std::endl;
     return 0;
   }
-  opt.listeners.emplace_back(new DynamicTestListener(logger.get()));
+  opt.comp_controller->compactioner = new DynCompactionV2::DynamicCompactionerV2(FLAGS_buffer_size, FLAGS_search_depth);
+  // opt.listeners.emplace_back(new DynamicTestListener(logger.get())); 
   auto s = rocksdb::DB::Open(opt, "/tmp/db", &db);
   if (!s.ok()) {
     std::cout << "fail to open db: " << s.ToString() << std::endl;
     return 0;
   }
-  WorkloadManager mng(opt.comp_controller, logger.get());
-  mng.InitWorkload(FLAGS_window_num, FLAGS_window_size, FLAGS_intensity);
-  mng.StartProcessing(db);
-  std::this_thread::sleep_for(std::chrono::seconds(20));
+  WorkloadManager mng(opt.comp_controller, logger.get(), FLAGS_key_size, FLAGS_value_size, FLAGS_range_lookup_len, FLAGS_buffer_size);
+  
+  mng.InitWorkloadFromFile(FLAGS_workload_file);
+  std::cout << "Finish init workload" << std::endl;
 
+  if (FLAGS_compaction_style == "dynamic") {
+    opt.comp_controller->InitForDynamicCompaction(opt.num_levels);
+  }
+  mng.StartProcessing(db);
+
+  // std::this_thread::sleep_for(std::chrono::seconds(20));
+  for (int i = 0; i < (int)mng.record_times_.size(); i++) {
+    if (mng.record_ops_[i] == WorkloadManager::OpType::UPDATE) {
+      std::cout << "update time: " << mng.record_times_[i] << std::endl;
+    } else if (mng.record_ops_[i] == WorkloadManager::OpType::RANGE_LOOKUP) {
+      std::cout << "range lookup time: " << mng.record_times_[i] << std::endl;
+    } else {
+      std::cout << "point lookup time: " << mng.record_times_[i] << std::endl;
+    }
+  }
   std::cout << "stats: " << opt.statistics->ToString() << std::endl;
   db->Close();
   return 0;

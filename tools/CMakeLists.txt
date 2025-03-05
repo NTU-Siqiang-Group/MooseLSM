@@ -14,6 +14,7 @@ if(WITH_TOOLS)
     db_sanity_test.cc
     write_stress.cc
     dynamic_test.cc
+    dyncompaction_test.cc
     db_repl_stress.cc
     dump/rocksdb_dump.cc
     dump/rocksdb_undump.cc)

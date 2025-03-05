@@ -44,6 +44,10 @@ project(rocksdb
   HOMEPAGE_URL https://rocksdb.org/
   LANGUAGES CXX C ASM)
 
+find_package(Eigen3 REQUIRED)
+include_directories(${Eigen3_INCLUDE_DIRS})
+list(APPEND THIRDPARTY_LIBS Eigen3::Eigen)
+
 if(APPLE)
   # On macOS Cmake, when cross-compiling, sometimes CMAKE_SYSTEM_PROCESSOR wrongfully stays
   # the same as CMAKE_HOST_SYSTEM_PROCESSOR regardless the target CPU.
@@ -1075,7 +1079,6 @@ endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
-
 
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)

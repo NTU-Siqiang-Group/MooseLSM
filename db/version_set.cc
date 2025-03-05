@@ -235,7 +235,7 @@ class FilePicker {
         }
 
         returned_file_level_ = curr_level_;
-        if (curr_level_ > 0 && cmp_largest < 0) {
+        if (!search_all_files_ && curr_level_ > 0 && cmp_largest < 0) {
           // No more files to search in this level.
           search_ended_ = !PrepareNextLevel();
         } else {
@@ -2434,7 +2434,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   FilePicker fp(user_key, ikey, &storage_info_.level_files_brief_,
                 storage_info_.num_non_empty_levels_,
                 &storage_info_.file_indexer_, user_comparator(),
-                internal_comparator(), storage_info_.NeedConsistencyChecks());
+                internal_comparator(), !storage_info_.NeedConsistencyChecks());
   FdWithKeyRange* f = fp.GetNextFile();
 
   while (f != nullptr) {
@@ -7085,9 +7085,13 @@ InternalIterator* VersionSet::MakeInputIterator(
     // Compaction iterator
     // 1. if only files at the same level involved, we only needs #num_files iterators
     // 2. if files at two levels (at most) involved, we needs the sum of the numbers iterators
-    space = c->num_input_levels() == 1
-                ? c->input_levels(0)->num_files
-                : c->input_levels(0)->num_files + c->input_levels(1)->num_files;
+    // space = c->num_input_levels() == 1
+    //             ? c->input_levels(0)->num_files
+    //             : c->input_levels(0)->num_files + c->input_levels(1)->num_files;
+    // create space for all the input files
+    for (size_t which = 0; which < c->num_input_levels(); which++) {
+      space += c->input_levels(which)->num_files;
+    }
   }
   InternalIterator** list = new InternalIterator*[space];
   // First item in the pair is a pointer to range tombstones.

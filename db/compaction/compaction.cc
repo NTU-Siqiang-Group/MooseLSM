@@ -520,8 +520,13 @@ bool Compaction::IsTrivialMove() const {
   // a very expensive merge later on.
   // If start_level_== output_level_, the purpose is to force compaction
   // filter to be applied to that level, and thus cannot be a trivial move.
-  if (immutable_options_.compaction_style == kCompactionStyleDynamic || 
-      immutable_options_.compaction_style == kCompactionStyleMoose) {
+  if (immutable_options_.compaction_style == kCompactionStyleMoose) {
+    return false;
+  }
+  if (immutable_options_.compaction_style == kCompactionStyleDynamic) {
+    if (inputs_.size() == 1 && inputs_[0].size() == 1) {
+      return true;
+    }
     return false;
   }
   // Check if start level have files with overlapping ranges

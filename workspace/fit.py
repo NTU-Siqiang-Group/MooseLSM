@@ -5,7 +5,7 @@ num_re = re.compile(r'\d+')
 x = []
 y = []
 
-with open('log/dynamic_500_100.log', 'r') as f:
+with open('log/leveling_noblock.log', 'r') as f:
   for line in f:
     if 'COMPACTION_END' in line:
       nums = num_re.findall(line)
@@ -31,9 +31,9 @@ print(slope, intercept)
 
 x_fit = np.linspace(min(x), max(x), 100)
 y_fit = linear_function(x_fit)
-plt.scatter(x, y, color='blue', label='Data points')
+plt.scatter(x, y, color='blue', label='Compaction Points')
 plt.plot(x_fit, y_fit, color='red', label='Fitted line')
-plt.xlabel('X')
-plt.ylabel('Y')
+plt.xlabel('compaction size')
+plt.ylabel('Time (us)')
 plt.legend()
 plt.savefig('result/compaction_time.png')
