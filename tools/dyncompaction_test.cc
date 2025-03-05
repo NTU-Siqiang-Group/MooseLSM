@@ -27,7 +27,7 @@ void updateState(DynCompactionV2::TreeState& state, const DynCompactionV2::DynAc
       total_size += std::accumulate(state.level_runs[i].begin(), state.level_runs[i].begin() + action.end_level_end_idx + 1, 0UL);
       state.level_runs[i].erase(state.level_runs[i].begin(), state.level_runs[i].begin() + action.end_level_end_idx + 1);
       state.total_runs -= action.end_level_end_idx + 1;
-    } else {
+    } else if (i != target_level || !action.create_new) {
       total_size += std::accumulate(state.level_runs[i].begin(), state.level_runs[i].end(), 0UL);
       state.total_runs -= state.level_runs[i].size();
       state.level_runs[i].clear();
