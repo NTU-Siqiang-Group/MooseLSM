@@ -4,54 +4,85 @@
 #include "gflags/gflags.h"
 #include <algorithm>
 
-
 DEFINE_string(query_file, "workloads/query2.dat", "query file");
+DEFINE_int32(lookforward, 100, "lookforward");
+DEFINE_bool(fixed_lookforward, true, "fixed lookforward");
+
+#define log_base(x, base) (std::log(x) / std::log(base))
 
 const uint64_t buffer_size = 2 * (1<<20);
 
-void updateState(DynCompactionV2::TreeState& state, const DynCompactionV2::DynActionV2& action) {
+void updateState(DynCompactionV2::TreeState& state, const DynCompactionV2::DynActionV3& action) {
   if (action.start_level < 0) {
     return;
   }
   int start_level = action.start_level;
-  int target_level = action.target_level;
-  uint64_t total_size = 0;
-  for (int i = start_level; i <= target_level; i++) {
-    if (i == start_level && action.start_level_end_idx >= 0) {
-      // erase the runs from [0, start_level_end_idx]
-      total_size += std::accumulate(state.level_runs[i].begin(), state.level_runs[i].begin() + action.start_level_end_idx + 1, 0UL);
-      state.level_runs[i].erase(state.level_runs[i].begin(), state.level_runs[i].begin() + action.start_level_end_idx + 1);
-      state.total_runs -= action.start_level_end_idx + 1;
-    } else if (i == target_level && action.end_level_end_idx >= 0) {
-      // erase the runs from [0, end_level_end_idx]
-      total_size += std::accumulate(state.level_runs[i].begin(), state.level_runs[i].begin() + action.end_level_end_idx + 1, 0UL);
-      state.level_runs[i].erase(state.level_runs[i].begin(), state.level_runs[i].begin() + action.end_level_end_idx + 1);
-      state.total_runs -= action.end_level_end_idx + 1;
-    } else if (i != target_level || !action.create_new) {
-      total_size += std::accumulate(state.level_runs[i].begin(), state.level_runs[i].end(), 0UL);
-      state.total_runs -= state.level_runs[i].size();
-      state.level_runs[i].clear();
+  int end_level = action.target_level;
+  int64_t total_compacted_size = 0UL;
+  for (int i = start_level; i <= end_level; i++) {
+    if (action.removed_files[i].size() == 0) {
+      continue;
+    }
+    for (int j = 0; j < (int)action.removed_files[i].size(); j++) {
+      if (action.removed_files[i][j]) {
+        total_compacted_size += state.level_runs[i][j];
+        state.level_runs[i][j] = 0; // mark deleted
+      }
     }
   }
-  // install the new run
-  state.level_runs[target_level].push_back(total_size);
-  state.total_runs += 1;
-  int max_level_runs = INT_MIN;
+  state.level_runs[end_level].push_back(total_compacted_size); // install the new run
+  // calculate the total runs & remove the marked runs
+  int total_runs = 0;
+  int max_level_runs = 0;
+  std::vector<std::vector<int64_t>> new_level_runs;
   for (int i = 0; i < (int)state.level_runs.size(); i++) {
-    max_level_runs = std::max(max_level_runs, (int)state.level_runs[i].size());
-    // sort the run in desc order
-    std::sort(state.level_runs[i].begin(), state.level_runs[i].end(), std::greater<uint64_t>());
+    std::vector<int64_t> new_runs;
+    for (int j = 0; j < (int)state.level_runs[i].size(); j++) {
+      if (state.level_runs[i][j] > 0) {
+        new_runs.push_back(state.level_runs[i][j]);
+        total_runs ++;
+      }
+    }
+    if (new_runs.size() > max_level_runs) {
+      max_level_runs = new_runs.size();
+    }
+    // sort desc
+    std::sort(new_runs.begin(), new_runs.end(), std::greater<int64_t>());
+    new_level_runs.push_back(new_runs);
   }
+  state.level_runs = new_level_runs;
+  state.total_runs = total_runs;
   state.max_level_runs = max_level_runs;
+}
+
+int updateLookforward(DynCompactionV2::TreeState& current_state) {
+  std::unordered_map<int, int> size_cnts;
+  for (int i = 0; i < (int)current_state.level_runs.size(); i++) {
+    for (int j = 0; j < (int)current_state.level_runs[i].size(); j++) {
+      int64_t run_size = current_state.level_runs[i][j];
+      int64_t bucket = std::floor(std::max(0.0, std::log2(run_size / buffer_size)));
+      size_cnts[bucket] ++;
+    }
+  }
+  int score = 0;
+  for (auto& kv : size_cnts) {
+    score += kv.first * log_base(kv.second, 1.1);
+  }
+  return 100 + score;
 }
 
 int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   rocksdb::Options opt;
   opt.comp_controller = new rocksdb::AtomicCompactionController(buffer_size);
-  opt.comp_controller->compactioner = new DynCompactionV2::DynamicCompactionerV2(2 * (1<<20), 100);
+  opt.comp_controller->compactioner = new DynCompactionV2::DynamicCompactionerV2(2 * (1<<20), FLAGS_lookforward);
   WorkloadManager mng(opt.comp_controller, nullptr, 24, 1000, 16, 2 * (1<<20));
-  mng.InitWorkloadFromFile(FLAGS_query_file);
+  mng.InitWorkloadFromFile(FLAGS_query_file, false);
+  // mng.InitWorkloadFromFile(FLAGS_query_file, false);
+  auto back_node = opt.comp_controller->compactioner->workload.windows.back();
+  for (int i = 0; i < 500; i++) {
+    opt.comp_controller->compactioner->workload.Append(back_node);
+  }
 
   DynCompactionV2::TreeState cur_state, target_state;
   cur_state.level_runs.resize(4);
@@ -60,7 +91,7 @@ int main(int argc, char** argv) {
   cur_state.level_runs[3].push_back(20UL * (1<<30)); // initialized size 20GB
   target_state = cur_state;
 
-  DynCompactionV2::DynActionV2 ongoing_action;
+  DynCompactionV2::DynActionV3 ongoing_action;
   int next_finished_idx = -1;
 
   std::vector<double> costs;
@@ -110,18 +141,22 @@ int main(int argc, char** argv) {
     if (next_finished_idx <= i) {
       // install the action
       cur_state = target_state;
-      ongoing_action = DynCompactionV2::DynActionV2(); // reset
+      ongoing_action = DynCompactionV2::DynActionV3(); // reset
       next_finished_idx = -1;
     }
     // trigger a compaction
     if (ongoing_action.start_level < 0) {
       // no compaction is doing
       cur_state.InitCompactedActions();
-      ongoing_action = opt.comp_controller->compactioner->GetBestActionWithCompactedActions(cur_state, i + 1);
+      ongoing_action = opt.comp_controller->compactioner->GetBestActionV3(cur_state, i + 1);
       next_finished_idx = i + ongoing_action.estimate_finished_idx;
       target_state = cur_state;
       updateState(target_state, ongoing_action);
     }
+    if (!FLAGS_fixed_lookforward) {
+      opt.comp_controller->compactioner->lookforward = updateLookforward(cur_state);
+    }
+    
 
     double avg_range_lookup_costs = range_lookup_costs / range_lookup_percent;
     double avg_point_lookup_costs = point_lookup_costs / point_lookup_percent;
@@ -131,9 +166,9 @@ int main(int argc, char** argv) {
       << "Total Runs: " << cur_state.total_runs << std::endl
       << "Window ops: (" << update_percent << "," << range_lookup_percent << "," << point_lookup_percent << ")" << std::endl
       << "Window costs: (" << avg_update_costs << "," << avg_range_lookup_costs << "," << avg_point_lookup_costs << ")" << std::endl
-      << "Action: " << ongoing_action.ToString() << std::endl
+      << "Action: " << ongoing_action.ToString()
+      << "Lookforward: " << opt.comp_controller->compactioner->lookforward << std::endl
       << "----------------------------------------" << std::endl;
-    // copy window costs to global costs
     costs.insert(costs.end(), window_costs.begin(), window_costs.end());
     ops.insert(ops.end(), window_ops.begin(), window_ops.end());  
   }

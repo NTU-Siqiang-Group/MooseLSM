@@ -15,12 +15,12 @@
 
 namespace DynCompactionV2 {
 struct SearchNode {
-  uint32_t range_lookup_nums = 0;
-  uint32_t update_nums = 0;
-  uint32_t point_lookup_nums = 0;
+  int32_t range_lookup_nums = 0;
+  int32_t update_nums = 0;
+  int32_t point_lookup_nums = 0;
 
-  uint64_t prefix_sum_range_lookups = 0;
-  uint64_t prefix_sum_point_lookups = 0;
+  int64_t prefix_sum_range_lookups = 0;
+  int64_t prefix_sum_point_lookups = 0;
 
   void Pop(const SearchNode& other) {
     range_lookup_nums -= other.range_lookup_nums;
@@ -47,7 +47,7 @@ struct DynAction {
   int min_idx_at_target_level = -1;
   
   // for evaluation
-  uint64_t compaction_size = 0;
+  int64_t compaction_size = 0;
   int reduced_runs = 0;
   int reward = 0;
 };
@@ -77,8 +77,30 @@ struct DynActionV2 {
   }
 };
 
+struct DynActionV3 {
+  std::vector<std::vector<bool>> removed_files = decltype(removed_files)(20, std::vector<bool>(100, false));
+  int start_level = -1;
+  int target_level = -1;
+  double reward = 0;
+  int estimate_finished_idx = -1;
+
+  std::string ToString() const {
+    std::string ret;
+    ret += "Start level: " + std::to_string(start_level) + ", target level: " 
+      + std::to_string(target_level) + ", reward: " + std::to_string(reward) 
+      + ", estimate finished idx: " + std::to_string(estimate_finished_idx) + "\n";
+    return ret;
+  }
+
+  void setVal(int level, int start_idx, int end_idx, bool val=true) {
+    for (int i = start_idx; i <= end_idx; i++) {
+      removed_files[level][i] = val;
+    }
+  }
+};
+
 struct TreeState {
-  std::vector<std::vector<uint64_t>> level_runs;
+  std::vector<std::vector<int64_t>> level_runs;
   int total_runs = 0;
 
   // compacted actions
@@ -96,7 +118,7 @@ struct TreeState {
     std::string ret;
     for (int i = 0; i < (int)level_runs.size(); i++) {
       ret += "Level " + std::to_string(i) + ": " + std::to_string(level_runs[i].size()) + " runs, ";
-      uint64_t total_size = 0;
+      int64_t total_size = 0;
       for (int j = 0; j < (int)level_runs[i].size(); j++) {
         total_size += level_runs[i][j];
       }
@@ -133,9 +155,9 @@ struct TreeState {
     compaction_init();
     int prev_total_size = 0;
     int prev_run_numbers = 0;
-    std::vector<uint64_t> level_sizes(level_runs.size(), 0);
+    std::vector<int64_t> level_sizes(level_runs.size(), 0);
     for (int i = 0; i < (int)level_runs.size(); i++) {
-      uint64_t cur_size = 0;
+      int64_t cur_size = 0;
       if (level_runs[i].size() == 0) {
         continue;
       }
@@ -200,7 +222,7 @@ struct TreeState {
       // find the smallest run at (i+1)-th level
       if (action.target_level < (int)level_runs.size()
         && (int)level_runs[action.target_level].size() > 0) {
-        uint64_t min_size = UINT64_MAX;
+        int64_t min_size = INT64_MAX;
         int min_idx = -1;
         for (int j = 0; j < (int)level_runs[action.target_level].size(); j++) {
           if (level_runs[action.target_level][j] < min_size) {
@@ -221,9 +243,9 @@ struct TreeState {
 
 struct DynamicCompactionerV2 {
   Sequence workload;
-  uint64_t buffer_size;
+  int64_t buffer_size;
 
-  int lookforward = 100;
+  std::atomic<int> lookforward{100};
 
   void gen_window_duration(const TreeState& tree_state, int start_win_idx, int max_forward_offset,
       Eigen::MatrixXd& window_duration, Eigen::MatrixXd& prefix_range_lookups, Eigen::MatrixXd& prefix_point_lookups) {
@@ -235,9 +257,9 @@ struct DynamicCompactionerV2 {
     prefix_range_lookups = Eigen::MatrixXd::Zero(1, max_forward_offset);
     prefix_point_lookups = Eigen::MatrixXd::Zero(1, max_forward_offset);
     for (int i = start_win_idx; i < start_win_idx + max_forward_offset; i++) {
-      uint64_t range_lookup_nums = workload.At(i).range_lookup_nums;
-      uint64_t point_lookup_nums = workload.At(i).point_lookup_nums;
-      window_duration(0, i - start_win_idx) = range_lookup_nums * row_vec(0, i - start_win_idx) + point_lookup_nums + buffer_size / 4096;
+      int64_t range_lookup_nums = workload.At(i).range_lookup_nums;
+      int64_t point_lookup_nums = workload.At(i).point_lookup_nums;
+      window_duration(0, i - start_win_idx) = range_lookup_nums * row_vec(0, i - start_win_idx) + (1 + 0.01 * row_vec(0, i - start_win_idx)) * point_lookup_nums + buffer_size / 4096;
       if (i != start_win_idx) {
         window_duration(0, i - start_win_idx) += window_duration(0, i - start_win_idx - 1);
       }
@@ -443,7 +465,99 @@ struct DynamicCompactionerV2 {
     return best_action;
   }
 
-  DynamicCompactionerV2(uint64_t buffsize, int lf=100): buffer_size(buffsize), lookforward(lf)  {}
+  DynActionV3 GetBestActionV3(TreeState& current_state, int start_win_idx, int depth=0) {
+    if (current_state.max_level_runs == 0 || workload.windows.size() == 0) {
+      return DynActionV3();
+    }
+    current_state.create_new_reward_origin = current_state.create_new.rewards;
+    current_state.with_next_run_reward_origin = current_state.with_next_run.rewards;
+    DynActionV3 best_action, tmp;
+    Eigen::MatrixXd duration, prefix_range_lookups, prefix_point_lookups;
+    gen_window_duration(current_state, start_win_idx, lookforward, duration, prefix_range_lookups, prefix_point_lookups);
+    current_state.duration = duration;
+    current_state.prefix_range_lookups = prefix_range_lookups;
+
+    int row = 0, col = 0;
+    auto finished_idx = find_min_idx(current_state.create_new.compactions, duration);
+    current_state.finished_idx_create_new = finished_idx;
+    get_estimate_reward(current_state.create_new.rewards, finished_idx, prefix_range_lookups, prefix_point_lookups);
+    tmp.reward = current_state.create_new.rewards.maxCoeff(&row, &col);
+    // find the minimum element's idx at reward matrix
+    if (tmp.reward > best_action.reward) {
+      tmp.start_level = row;
+      tmp.target_level = row + 1 < (int)current_state.level_runs.size() ? row + 1 : row;
+      tmp.removed_files[row] = std::vector<bool>(current_state.level_runs[row].size(), false);
+      tmp.setVal(row, 0, col);
+      if (col != (int)current_state.level_runs[row].size() - 1) {
+        // not compacting the whole level
+        // we cannot put it to the next level
+        tmp.target_level = tmp.start_level;
+      }
+      tmp.estimate_finished_idx = finished_idx(row, col);
+    
+      best_action = tmp;
+    }
+    
+    tmp = DynActionV3();
+    finished_idx = find_min_idx(current_state.with_next_run.compactions, duration);
+    get_estimate_reward(current_state.with_next_run.rewards, finished_idx, prefix_range_lookups, prefix_point_lookups);
+    current_state.finished_idx_with_next = finished_idx;
+    tmp.reward = current_state.with_next_run.rewards.maxCoeff(&row, &col);
+    if (tmp.reward > best_action.reward) {
+      tmp.start_level = row;
+      tmp.target_level = row + 1 < (int)current_state.level_runs.size() ? row + 1 : row;
+      tmp.removed_files[row] = std::vector<bool>(current_state.level_runs[row].size(), false);
+      // tmp.start_level_end_idx = col;
+      // tmp.create_new = false;
+      tmp.setVal(row, 0, col);
+      auto back_idx = current_state.level_runs[tmp.target_level].size() - 1;
+      tmp.removed_files[tmp.target_level] = std::vector<bool>(current_state.level_runs[tmp.target_level].size(), false);
+      tmp.setVal(tmp.target_level, back_idx, back_idx); // compact the last one
+      tmp.estimate_finished_idx = finished_idx(row, col);
+    
+      best_action = tmp;
+    }
+
+    tmp = DynActionV3();
+    finished_idx = find_min_idx(current_state.major_compaction.compactions, duration);
+    get_estimate_reward(current_state.major_compaction.rewards, finished_idx, prefix_range_lookups, prefix_point_lookups);
+    tmp.reward = current_state.major_compaction.rewards.maxCoeff(&row, &col);
+    if (tmp.reward > best_action.reward) {
+      tmp.start_level = 0;
+      tmp.target_level = row;
+      for (int i = 0; i <= tmp.target_level; i++) {
+        tmp.removed_files[i] = std::vector<bool>(current_state.level_runs[i].size(), false);
+        if (i == tmp.target_level) {
+          // tmp.level_remove_end_idxs[i] = col;
+          tmp.setVal(i, 0, col);
+        } else {
+          tmp.setVal(i, 0, current_state.level_runs[i].size() - 1); // remove the whole level
+        }
+      }
+      tmp.estimate_finished_idx = finished_idx(row, col);
+      best_action = tmp;
+    }
+
+    tmp = DynActionV3();
+    finished_idx = find_min_idx(current_state.major_compaction_new.compactions, duration);
+    get_estimate_reward(current_state.major_compaction_new.rewards, finished_idx, prefix_range_lookups, prefix_point_lookups);
+    tmp.reward = current_state.major_compaction_new.rewards.maxCoeff(&row, &col);
+    if (tmp.reward > best_action.reward) {
+      tmp.start_level = 0;
+      tmp.target_level = row;
+      for (int i = 0; i < tmp.target_level; i++) {
+        tmp.setVal(i, 0, current_state.level_runs[i].size() - 1); // remove the whole level
+      }
+      tmp.estimate_finished_idx = finished_idx(row, col);
+    
+      best_action = tmp;
+    }
+
+    // return the one with maximum reward
+    return best_action;
+  }
+
+  DynamicCompactionerV2(int64_t buffsize, int lf=100): buffer_size(buffsize), lookforward(lf)  {}
 };
 
 } // namespace DynCompactionV2

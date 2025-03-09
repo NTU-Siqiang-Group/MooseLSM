@@ -127,7 +127,7 @@ struct WorkloadManager {
   }
  
  public:
-  void InitWorkloadFromFile(const std::string& filename) {
+  void InitWorkloadFromFile(const std::string& filename, bool repeat=true) {
     std::ifstream f(filename);
     std::string line;
     auto window = std::make_shared<WorkloadWindow>();
@@ -177,7 +177,7 @@ struct WorkloadManager {
     }
     // repeat the last search node 500 times
     auto node = compaction_controller_->compactioner->workload.At(compaction_controller_->compactioner->workload.windows.size() - 1);
-    for (int i = 0; i < 500; i++) {
+    for (int i = 0; repeat && i < 500; i++) {
       compaction_controller_->compactioner->workload.Append(node);
     }
     f.close();
@@ -193,11 +193,11 @@ struct WorkloadManager {
 
   void StartProcessing(rocksdb::DB* db) {
     bool need_manual_compaction = db->GetOptions().compaction_style == rocksdb::kCompactionStyleDynamic;
-    if (need_manual_compaction) {
-      double range_lookup_ratio = (double)workloads_[0]->total_range_lookup_cnt / (workloads_[0]->ops.size());
-        int lookforward = dynamic_lookforward(range_lookup_ratio);
-        compaction_controller_->compactioner->lookforward = lookforward;
-    }
+    // if (need_manual_compaction) {
+    //   double range_lookup_ratio = (double)workloads_[0]->total_range_lookup_cnt / (workloads_[0]->ops.size());
+    //     int lookforward = dynamic_lookforward(range_lookup_ratio);
+    //     compaction_controller_->compactioner->lookforward = lookforward;
+    // }
     for (int i = 0; i < (int)workloads_.size(); i++) {
       std::cout << "window #" << i << ", range lookup cnt: " << workloads_[i]->total_range_lookup_cnt
         << ", update cnt: " << workloads_[i]->total_update_cnt
@@ -206,11 +206,11 @@ struct WorkloadManager {
       // if (need_manual_compaction) {
       compaction_controller_->cur_win_idx ++;
       // reset the search depth
-      if (need_manual_compaction && i + 1 < (int)workloads_.size()) {
-        double range_lookup_ratio = (double)workloads_[i + 1]->total_range_lookup_cnt / (workloads_[i + 1]->ops.size());
-        int lookforward = dynamic_lookforward(range_lookup_ratio);
-        compaction_controller_->compactioner->lookforward = lookforward;
-      }
+      // if (need_manual_compaction && i + 1 < (int)workloads_.size()) {
+      //   double range_lookup_ratio = (double)workloads_[i + 1]->total_range_lookup_cnt / (workloads_[i + 1]->ops.size());
+      //   int lookforward = dynamic_lookforward(range_lookup_ratio);
+      //   compaction_controller_->compactioner->lookforward = lookforward;
+      // }
     }
   }
 

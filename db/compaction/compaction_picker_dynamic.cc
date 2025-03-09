@@ -284,6 +284,64 @@ class DynamicCompactionBuilder {
       compaction_reason_);
     return c;
   }
+ 
+  Compaction* PickCompactionWithActionV3() {
+    auto compactioner = mutable_cf_options_.comp_controller->compactioner;
+    // 1. get the current state
+    DynCompactionV2::TreeState state;
+    GetCurrentStateForCompactedAction(state);
+    state.InitCompactedActions();
+    int win_idx = mutable_cf_options_.comp_controller->cur_win_idx.load();
+    auto best_action = compactioner->GetBestActionV3(state, win_idx);
+    ROCKS_LOG_INFO(ioptions_.info_log, "dynamic_state (%d): \n%s", win_idx, state.ToString().c_str());
+    ROCKS_LOG_INFO(ioptions_.info_log, "best_action: %s, lookforward: %d\n", best_action.ToString().c_str(), compactioner->lookforward.load());
+    if (best_action.start_level < 0) {
+      return nullptr;
+    }
+    start_level_ = best_action.start_level;
+    output_level_ = best_action.target_level;
+
+    for (int i = start_level_; i <= output_level_; i++) {
+      CompactionInputFiles input;
+      auto files = vstorage_->LevelFiles(i);
+      // sort files in desc order
+      std::sort(files.begin(), files.end(), [](FileMetaData* a, FileMetaData* b) {
+        return a->fd.file_size > b->fd.file_size;
+      });
+      for (int j = 0; j < (int)files.size(); j++) {
+        if (files[j]->being_compacted) {
+          // should not happen
+          return nullptr;
+        }
+        if (best_action.removed_files[i][j]) {
+          input.files.push_back(files[j]);
+        }
+      }
+      if (input.files.size() > 0) {
+        input.level = i;
+        compaction_inputs_.push_back(std::move(input));
+      }
+    }
+    if (compaction_inputs_.size() == 0) {
+      return nullptr;
+    }
+
+    auto c = new Compaction(
+      vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
+      std::move(compaction_inputs_), output_level_,
+      /* max file size */100UL * (1<<30),
+      mutable_cf_options_.max_compaction_bytes,
+      GetPathId(ioptions_, mutable_cf_options_, output_level_),
+      GetCompressionType(vstorage_, mutable_cf_options_, output_level_,
+                         vstorage_->base_level()),
+      GetCompressionOptions(mutable_cf_options_, vstorage_, output_level_),
+      Temperature::kUnknown,
+      /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
+      /* trim_ts */ "", /* start_level_score*/ 1, false /* deletion_compaction */,
+      /* l0_files_might_overlap */ true,
+      compaction_reason_);
+    return c;
+  }
  private:
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
@@ -318,7 +376,8 @@ Compaction* DynamicCompactionPicker::PickCompaction(
                                mutable_db_options);
   log_buffer->FlushBufferToLog();
   // auto compaction = builder.PickCompaction();
-  auto compaction = builder.PickCompactionWithCompactedActions();
+  // auto compaction = builder.PickCompactionWithCompactedActions();
+  auto compaction = builder.PickCompactionWithActionV3();
   return compaction;
 }
 } // namespace ROCKSDB_NAMESPACE
