@@ -161,7 +161,7 @@ struct WorkloadManager {
         window->total_point_lookup_cnt = point_lookup_cnt;
         workloads_.push_back(window);
 
-        DynCompactionV2::SearchNode node;
+        DynCompactionV3::SearchNode node;
         node.range_lookup_nums = range_lookup_cnt;
         node.point_lookup_nums = point_lookup_cnt;
         node.update_nums = update_cnt;

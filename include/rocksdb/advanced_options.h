@@ -15,7 +15,8 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
 // #include "rocksdb/dyncompactioner.h"
-#include "rocksdb/dyncompactionerv2.h"
+// #include "rocksdb/dyncompactionerv2.h"
+#include "rocksdb/dyncompactionv3.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -47,7 +48,7 @@ struct AtomicCompactionController {
   std::atomic<int> cur_win_idx{0};
   std::atomic<bool> need_compaction{true};
 
-  DynCompactionV2::DynamicCompactionerV2* compactioner = nullptr;
+  DynCompactionV3::DynamicCompactionerV3* compactioner = nullptr;
 
   AtomicCompactionController(uint64_t buff_size=2UL*(1<<20)):
     buffer_size(buff_size),

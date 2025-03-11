@@ -115,13 +115,9 @@ int main(int argc, char** argv) {
     std::cout << "unknown compaction style: " << FLAGS_compaction_style << std::endl;
     return 0;
   }
-  opt.comp_controller->compactioner = new DynCompactionV2::DynamicCompactionerV2(FLAGS_buffer_size, FLAGS_search_depth);
+  opt.comp_controller->compactioner = new DynCompactionV3::DynamicCompactionerV3(FLAGS_buffer_size, FLAGS_search_depth);
   // opt.listeners.emplace_back(new DynamicTestListener(logger.get())); 
-  auto s = rocksdb::DB::Open(opt, "/tmp/db", &db);
-  if (!s.ok()) {
-    std::cout << "fail to open db: " << s.ToString() << std::endl;
-    return 0;
-  }
+  
   WorkloadManager mng(opt.comp_controller, logger.get(), FLAGS_key_size, FLAGS_value_size, FLAGS_range_lookup_len, FLAGS_buffer_size);
   
   mng.InitWorkloadFromFile(FLAGS_workload_file);
@@ -130,6 +126,13 @@ int main(int argc, char** argv) {
   if (FLAGS_compaction_style == "dynamic") {
     opt.comp_controller->InitForDynamicCompaction(opt.num_levels);
   }
+
+  auto s = rocksdb::DB::Open(opt, "/tmp/db", &db);
+  if (!s.ok()) {
+    std::cout << "fail to open db: " << s.ToString() << std::endl;
+    return 0;
+  }
+
   mng.StartProcessing(db);
 
   // std::this_thread::sleep_for(std::chrono::seconds(20));

@@ -1,4 +1,4 @@
-#include "rocksdb/dyncompactionerv2.h"
+#include "rocksdb/dyncompactionv3.h"
 #include "dynamic_test_util.h"
 
 #include "gflags/gflags.h"
@@ -12,7 +12,7 @@ DEFINE_bool(fixed_lookforward, true, "fixed lookforward");
 
 const uint64_t buffer_size = 2 * (1<<20);
 
-void updateState(DynCompactionV2::TreeState& state, const DynCompactionV2::DynActionV3& action) {
+void updateState(DynCompactionV3::TreeState& state, const DynCompactionV3::DynAction& action) {
   if (action.start_level < 0) {
     return;
   }
@@ -55,7 +55,7 @@ void updateState(DynCompactionV2::TreeState& state, const DynCompactionV2::DynAc
   state.max_level_runs = max_level_runs;
 }
 
-int updateLookforward(DynCompactionV2::TreeState& current_state) {
+int updateLookforward(DynCompactionV3::TreeState& current_state) {
   std::unordered_map<int, int> size_cnts;
   for (int i = 0; i < (int)current_state.level_runs.size(); i++) {
     for (int j = 0; j < (int)current_state.level_runs[i].size(); j++) {
@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   rocksdb::Options opt;
   opt.comp_controller = new rocksdb::AtomicCompactionController(buffer_size);
-  opt.comp_controller->compactioner = new DynCompactionV2::DynamicCompactionerV2(2 * (1<<20), FLAGS_lookforward);
+  opt.comp_controller->compactioner = new DynCompactionV3::DynamicCompactionerV3(2 * (1<<20), FLAGS_lookforward);
   WorkloadManager mng(opt.comp_controller, nullptr, 24, 1000, 16, 2 * (1<<20));
   mng.InitWorkloadFromFile(FLAGS_query_file, false);
   // mng.InitWorkloadFromFile(FLAGS_query_file, false);
@@ -84,14 +84,14 @@ int main(int argc, char** argv) {
     opt.comp_controller->compactioner->workload.Append(back_node);
   }
 
-  DynCompactionV2::TreeState cur_state, target_state;
+  DynCompactionV3::TreeState cur_state, target_state;
   cur_state.level_runs.resize(4);
   cur_state.max_level_runs = 1;
   cur_state.total_runs = 1;
-  cur_state.level_runs[3].push_back(20UL * (1<<30)); // initialized size 20GB
+  cur_state.level_runs[3].push_back(40UL * (1<<30)); // initialized size 20GB
   target_state = cur_state;
 
-  DynCompactionV2::DynActionV3 ongoing_action;
+  DynCompactionV3::DynAction ongoing_action;
   int next_finished_idx = -1;
 
   std::vector<double> costs;
@@ -141,14 +141,14 @@ int main(int argc, char** argv) {
     if (next_finished_idx <= i) {
       // install the action
       cur_state = target_state;
-      ongoing_action = DynCompactionV2::DynActionV3(); // reset
+      ongoing_action = DynCompactionV3::DynAction(); // reset
       next_finished_idx = -1;
     }
     // trigger a compaction
     if (ongoing_action.start_level < 0) {
       // no compaction is doing
-      cur_state.InitCompactedActions();
-      ongoing_action = opt.comp_controller->compactioner->GetBestActionV3(cur_state, i + 1);
+      cur_state.EnumerateActions();
+      ongoing_action = opt.comp_controller->compactioner->GetBestAction(cur_state, i + 1);
       next_finished_idx = i + ongoing_action.estimate_finished_idx;
       target_state = cur_state;
       updateState(target_state, ongoing_action);
@@ -157,7 +157,6 @@ int main(int argc, char** argv) {
       opt.comp_controller->compactioner->lookforward = updateLookforward(cur_state);
     }
     
-
     double avg_range_lookup_costs = range_lookup_costs / range_lookup_percent;
     double avg_point_lookup_costs = point_lookup_costs / point_lookup_percent;
     double avg_update_costs = update_costs / update_percent;
@@ -170,7 +169,7 @@ int main(int argc, char** argv) {
       << "Lookforward: " << opt.comp_controller->compactioner->lookforward << std::endl
       << "----------------------------------------" << std::endl;
     costs.insert(costs.end(), window_costs.begin(), window_costs.end());
-    ops.insert(ops.end(), window_ops.begin(), window_ops.end());  
+    ops.insert(ops.end(), window_ops.begin(), window_ops.end());
   }
 
   double avg_range_lookup_costs = 0;
@@ -196,5 +195,30 @@ int main(int argc, char** argv) {
   avg_update_costs /= update_cnt;
   std::cout << "Total ops: (" << update_cnt << "," << range_lookup_cnt << "," << point_lookup_cnt << ")" << std::endl
     << "Total costs: (" << avg_update_costs << "," << avg_range_lookup_costs << "," << avg_point_lookup_costs << ")" << std::endl;
+  // show avg per 10240000 ops
+  std::cout << "--------------------------" << std::endl;
+  for (int i = 0; i < ops.size(); i += 10240000) {
+    double rcosts = 0, pcosts = 0, ucosts = 0;
+    int rnums = 0, pnums = 0, unums = 0;
+    for (int j = i; j < std::min(i + 10240000, (int)ops.size()); j++) {
+      if (ops[j] == WorkloadManager::OpType::RANGE_LOOKUP) {
+        rcosts += costs[j];
+        rnums ++;
+      } else if (ops[j] == WorkloadManager::OpType::UPDATE) {
+        ucosts += costs[j];
+        unums ++;
+      } else if (ops[j] == WorkloadManager::OpType::POINT_LOOKUP) {
+        pcosts += costs[j];
+        pnums ++;
+      }
+    }
+    int total_ops = rnums + pnums + unums;
+    double avgrcosts = rcosts / rnums, avgpcosts = pcosts / pnums, avgucosts = ucosts / unums;
+    std::cout << "Range Lookup (%): " << (double)rnums / total_ops << ", Avg Costs: " << avgrcosts << std::endl
+      << "Point Lookup (%): " << (double)pnums / total_ops << ", Avg Costs: " << avgpcosts << std::endl
+      << "Update (%): " << (double)unums / total_ops << ", Avg Costs: " << avgucosts << std::endl
+      << "Avg Overall: " << (avgrcosts * rnums + avgpcosts * pnums + avgucosts * unums) / total_ops << std::endl
+      << "----------------------------------------" << std::endl;
+  }
   return 0;
 }
