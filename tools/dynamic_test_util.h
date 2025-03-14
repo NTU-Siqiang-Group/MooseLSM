@@ -183,34 +183,88 @@ struct WorkloadManager {
     f.close();
   }
 
-  int dynamic_lookforward(double x) {
+  int dynamic_lookforward(double u, double r, double p) {
     // return -720 * x * x + 720 * x + 20;
     // return 200;
     // return -600 * x * x + 600 * x + 50;
     // return 100 * x + 100;
-    return 100;
+    // double variance = 
+    // normalize to [0, 1]
+    // double sum = u + r + p;
+    // u /= sum;
+    // r /= sum;
+    // p /= sum;
+    // double mean = (u + r + p) / 3;
+    // double variance = (u - mean) * (u - mean) + (r - mean) * (r - mean) + (p - mean) * (p - mean);
+    // int lf = 100 + 150 * variance;
+    // return lf;
+    return 50;
   }
+
+  int dynamic_lookforward(int done_ops) {
+    // int idx = done_ops / 10240000;
+    // static std::vector<int> lfs{200, 200, 150, 150, 50, 150, 100, 50, 50, 50, 50, 50, 50, 50, 50, 150, 150};
+    // if (idx >= (int)lfs.size()) {
+    //   return 150;
+    // }
+    // return lfs[idx];
+    return 50;
+  }
+  
+  // int dynamic_lookforward(int next_idx) {
+  //   // collect 100000 ops
+  //   int64_t ops = 0;
+  //   double r = 0, u = 0, p = 0;
+  //   for (int i = next_idx; ops < 1000000 && i < (int)workloads_.size(); i++) {
+  //     ops += workloads_[i]->ops.size();
+  //     r += workloads_[i]->total_range_lookup_cnt;
+  //     u += workloads_[i]->total_update_cnt;
+  //     p += workloads_[i]->total_point_lookup_cnt;
+  //   }
+  //   r /= ops;
+  //   u /= ops;
+  //   p /= ops;
+  //   if (p > 0.9) {
+  //     return 200;
+  //   }
+  //   if (r > 0.9) {
+  //     return 300;
+  //   }
+  //   if (u > 0.9) {
+  //     return 50;
+  //   }
+  //   if (u > 0.4) {
+  //     return 150;
+  //   }
+  //   return 100;
+  // }
 
   void StartProcessing(rocksdb::DB* db) {
     bool need_manual_compaction = db->GetOptions().compaction_style == rocksdb::kCompactionStyleDynamic;
-    // if (need_manual_compaction) {
-    //   double range_lookup_ratio = (double)workloads_[0]->total_range_lookup_cnt / (workloads_[0]->ops.size());
-    //     int lookforward = dynamic_lookforward(range_lookup_ratio);
-    //     compaction_controller_->compactioner->lookforward = lookforward;
-    // }
+    if (need_manual_compaction) {
+      int lf = dynamic_lookforward(0);
+      compaction_controller_->compactioner->lookforward = lf;
+    }
+    int64_t finished_ops = 0;
     for (int i = 0; i < (int)workloads_.size(); i++) {
       std::cout << "window #" << i << ", range lookup cnt: " << workloads_[i]->total_range_lookup_cnt
         << ", update cnt: " << workloads_[i]->total_update_cnt
         << ", point lookup cnt: " << workloads_[i]->total_point_lookup_cnt  << std::endl;
       ProcessWindow(db, workloads_[i]);
+      finished_ops += workloads_[i]->ops.size();
       // if (need_manual_compaction) {
       compaction_controller_->cur_win_idx ++;
       // reset the search depth
-      // if (need_manual_compaction && i + 1 < (int)workloads_.size()) {
-      //   double range_lookup_ratio = (double)workloads_[i + 1]->total_range_lookup_cnt / (workloads_[i + 1]->ops.size());
-      //   int lookforward = dynamic_lookforward(range_lookup_ratio);
-      //   compaction_controller_->compactioner->lookforward = lookforward;
-      // }
+      if (need_manual_compaction && i + 1 < (int)workloads_.size()) {
+        // int lf = dynamic_lookforward(
+        //   workloads_[i + 1]->total_update_cnt,
+        //   workloads_[i + 1]->total_range_lookup_cnt,
+        //   workloads_[i + 1]->total_point_lookup_cnt
+        // );
+        // compaction_controller_->compactioner->lookforward = lf;
+        compaction_controller_->compactioner->lookforward = dynamic_lookforward(finished_ops);
+        // compaction_controller_->compactioner->lookforward = dynamic_lookforward(i + 1);
+      }
     }
   }
 

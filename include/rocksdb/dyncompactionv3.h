@@ -11,6 +11,7 @@
 #include <atomic>
 #include <string>
 #include <iostream>
+#include <cmath>
 
 namespace DynCompactionV3 {
 struct SearchNode {
@@ -211,6 +212,17 @@ struct DynamicCompactionerV3 {
     }
   }
 
+  // void adaptive_lookforward(const TreeState& cur_state) {
+  //   int run_nums = cur_state.total_runs;
+  //   int64_t total_size = 0;
+  //   for (int i = 0; i < (int)cur_state.level_runs.size(); i++) {
+  //     total_size += std::accumulate(cur_state.level_runs[i].begin(), cur_state.level_runs[i].end(), 0L);
+  //   }
+  //   int lf = run_nums * std::floor(std::log2(1.0 * total_size / buffer_size));
+  //   lf = std::max(50, lf);
+  //   lookforward = lf;
+  // }
+
   DynAction GetBestAction(TreeState& cur_state, int start_win_idx) {
     if (cur_state.max_level_runs == 0 || workload.windows.size() == 0) {
       return DynAction(); // do nothing
@@ -237,6 +249,46 @@ struct DynamicCompactionerV3 {
         double cost = prev_rr * idx / 2 + prev_p * 0.01 / 2;
         action.reward -= cost;
       }
+      if (action.reward > best_action.reward) {
+        best_action = action;
+      }
+    }
+    return best_action;
+  }
+
+  DynAction GetBestActionV2(TreeState& cur_state, int start_win_idx) {
+    if (cur_state.max_level_runs == 0 || workload.windows.size() == 0) {
+      return DynAction(); // do nothing
+    }
+    DynAction best_action;
+    std::vector<double> acc_ios, remain_rrs, remain_ps;
+    get_win_acc_ios(cur_state.total_runs, start_win_idx, 1000, acc_ios, remain_rrs, remain_ps);
+    for (auto& action : cur_state.actions) {
+      // find first idx that acc_ios[idx] >= action.compaction_size
+      int idx = 0;
+      auto it = std::lower_bound(acc_ios.begin(), acc_ios.end(), action.compaction_size);
+      idx = it - acc_ios.begin();
+      if (it == acc_ios.end() || idx >= (int)acc_ios.size() - 1) {
+        action.reward = 0;
+        continue;
+      }
+      action.estimate_finished_idx = idx;
+      int reduced_run = action.reward;
+      double cost = 0;
+      if (idx > 0) {
+        double prev_rr = remain_rrs[0] - remain_rrs[idx - 1],
+          prev_p = remain_ps[0] - remain_ps[idx - 1];
+        cost = prev_rr * idx / 2 + prev_p * 0.01 * idx / 2;
+      }
+      double offset_cost = 0;
+      int elapsed_win = 0;
+      for (int i = idx + 1; offset_cost < cost && i < (int)remain_rrs.size(); i++) {
+        int range_nums = workload.windows[start_win_idx + i].range_lookup_nums;
+        int point_nums = workload.windows[start_win_idx + i].point_lookup_nums;
+        offset_cost += range_nums * reduced_run + point_nums * 0.01 * reduced_run;
+        elapsed_win ++;
+      }
+      action.reward = reduced_run - elapsed_win;
       if (action.reward > best_action.reward) {
         best_action = action;
       }

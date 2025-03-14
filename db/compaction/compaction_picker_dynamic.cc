@@ -342,6 +342,20 @@ class DynamicCompactionBuilder {
   //     compaction_reason_);
   //   return c;
   // }
+  int get_lf_upper(const DynCompactionV3::TreeState& state) {
+    int acc = 50;
+    std::unordered_map<int, int> buckets;
+    for (int i = 0; i < (int)state.level_runs.size(); i++) {
+      for (int j = 0; j < (int)state.level_runs[i].size(); j++) {
+        int b = std::floor(std::log2(std::max(1.0, state.level_runs[i][j] * 1.0 / 2 / (1<<20))));
+        buckets[b] ++;
+      }
+    }
+    for (auto& kv : buckets) {
+      acc += (int)10.0 * std::sqrt(kv.first);
+    }
+    return acc;
+  }
 
   Compaction* PickCompactionActionV3() {
     auto compactioner = mutable_cf_options_.comp_controller->compactioner;
@@ -350,10 +364,15 @@ class DynamicCompactionBuilder {
     GetCurrentStateForCompactedAction(state);
     // state.InitCompactedActions();
     state.EnumerateActions();
+    // auto copy_state = state;
     int win_idx = mutable_cf_options_.comp_controller->cur_win_idx.load();
     auto best_action = compactioner->GetBestAction(state, win_idx);
-    ROCKS_LOG_INFO(ioptions_.info_log, "dynamic_state (%d): \n%s", win_idx, state.ToString().c_str());
-    ROCKS_LOG_INFO(ioptions_.info_log, "best_action: %s", best_action.ToString().c_str(), compactioner->lookforward.load());
+    // auto best_action = compactioner->GetBestActionV2(state, win_idx);
+    ROCKS_LOG_INFO(ioptions_.info_log, "dynamic_state (%d), lookforward (%d): \n%s", win_idx, compactioner->lookforward.load() ,state.ToString().c_str());
+    ROCKS_LOG_INFO(ioptions_.info_log, "best_action: %s", best_action.ToString().c_str());
+    // auto bv2 = compactioner->GetBestActionV2(copy_state, win_idx);
+    // ROCKS_LOG_INFO(ioptions_.info_log, "V2 state:\n %s", copy_state.ToString().c_str());
+    // ROCKS_LOG_INFO(ioptions_.info_log, "V2 best_action: %s", bv2.ToString().c_str());
     if (best_action.start_level < 0) {
       return nullptr;
     }

@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
   cur_state.level_runs.resize(4);
   cur_state.max_level_runs = 1;
   cur_state.total_runs = 1;
-  cur_state.level_runs[3].push_back(40UL * (1<<30)); // initialized size 20GB
+  cur_state.level_runs[3].push_back(40UL * (1<<30)); // initialized size 40GB
   target_state = cur_state;
 
   DynCompactionV3::DynAction ongoing_action;
@@ -156,18 +156,20 @@ int main(int argc, char** argv) {
     if (!FLAGS_fixed_lookforward) {
       opt.comp_controller->compactioner->lookforward = updateLookforward(cur_state);
     }
-    
-    double avg_range_lookup_costs = range_lookup_costs / range_lookup_percent;
-    double avg_point_lookup_costs = point_lookup_costs / point_lookup_percent;
-    double avg_update_costs = update_costs / update_percent;
-    std::cout << "Window: " << i << "/" << mng.workloads_.size() << std::endl
-      << "Current state: \n" << cur_state.ToString()
-      << "Total Runs: " << cur_state.total_runs << std::endl
-      << "Window ops: (" << update_percent << "," << range_lookup_percent << "," << point_lookup_percent << ")" << std::endl
-      << "Window costs: (" << avg_update_costs << "," << avg_range_lookup_costs << "," << avg_point_lookup_costs << ")" << std::endl
-      << "Action: " << ongoing_action.ToString()
-      << "Lookforward: " << opt.comp_controller->compactioner->lookforward << std::endl
-      << "----------------------------------------" << std::endl;
+    if (i % 100 == 0) {
+      std::cout << "Processed: " << i << "/" << mng.workloads_.size() << std::endl;
+    }
+    // double avg_range_lookup_costs = range_lookup_costs / range_lookup_percent;
+    // double avg_point_lookup_costs = point_lookup_costs / point_lookup_percent;
+    // double avg_update_costs = update_costs / update_percent;
+    // std::cout << "Window: " << i << "/" << mng.workloads_.size() << std::endl
+    //   << "Current state: \n" << cur_state.ToString()
+    //   << "Total Runs: " << cur_state.total_runs << std::endl
+    //   << "Window ops: (" << update_percent << "," << range_lookup_percent << "," << point_lookup_percent << ")" << std::endl
+    //   << "Window costs: (" << avg_update_costs << "," << avg_range_lookup_costs << "," << avg_point_lookup_costs << ")" << std::endl
+    //   << "Action: " << ongoing_action.ToString()
+    //   << "Lookforward: " << opt.comp_controller->compactioner->lookforward << std::endl
+    //   << "----------------------------------------" << std::endl;
     costs.insert(costs.end(), window_costs.begin(), window_costs.end());
     ops.insert(ops.end(), window_ops.begin(), window_ops.end());
   }
