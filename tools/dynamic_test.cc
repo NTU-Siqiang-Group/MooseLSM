@@ -92,6 +92,7 @@ rocksdb::Options GetDynamicOptions() {
 
 rocksdb::Options GetLevelingOptions() {
   rocksdb::Options opt = GetBasedOptions();
+  opt.num_levels = 6;
   opt.max_bytes_for_level_base = FLAGS_buffer_size * opt.max_bytes_for_level_multiplier; // T * F
   opt.level_compaction_dynamic_level_bytes = false;
 
@@ -120,7 +121,7 @@ int main(int argc, char** argv) {
   
   WorkloadManager mng(opt.comp_controller, logger.get(), FLAGS_key_size, FLAGS_value_size, FLAGS_range_lookup_len, FLAGS_buffer_size);
   
-  mng.InitWorkloadFromFile(FLAGS_workload_file);
+  mng.InitWorkloadFromFile(FLAGS_workload_file, false);
   std::cout << "Finish init workload" << std::endl;
 
   if (FLAGS_compaction_style == "dynamic") {

@@ -118,17 +118,6 @@ struct TreeState {
       }
       DynAction compact_to_cur_level = empty;
       compact_to_cur_level.reward = -1;
-      // for (int j = 0; j < (int)level_runs[i].size(); j++) {
-      //   level_size += level_runs[i][j];
-      //   if (j != level_runs[i].size() - 1) {
-      //     compact_to_cur_level.removed_files[i][j] = true;
-      //     compact_to_cur_level.start_level = i;
-      //     compact_to_cur_level.target_level = i;
-      //     compact_to_cur_level.compaction_size = level_size;
-      //     compact_to_cur_level.reward = j; // compact j + 1 and create one new
-      //     actions.push_back(compact_to_cur_level);
-      //   }
-      // }
 
       auto cur_level_major = major_compaction;
       for (int j = (int)level_runs[i].size() - 1; j >= 0; j--) {
@@ -138,6 +127,9 @@ struct TreeState {
           compact_to_cur_level.removed_files[i][j] = 1;
           compact_to_cur_level.start_level = i;
           compact_to_cur_level.target_level = i;
+          if (compact_to_cur_level.start_level == 0) {
+            compact_to_cur_level.target_level = 1;
+          }
           compact_to_cur_level.compaction_size = level_size;
           compact_to_cur_level.reward ++;
           actions.push_back(compact_to_cur_level);
@@ -185,6 +177,13 @@ struct DynamicCompactionerV3 {
   int64_t buffer_size = 2 * (1<<20);
   std::atomic<int> lookforward{100};
 
+  TreeState most_recent_state;
+
+  double r = 0;
+  double u = 0;
+  double p = 0;
+  double prev_max_lookforward = 0;
+
   void get_win_acc_ios(int cur_total_runs, int start_win_idx, int max_offset,
     std::vector<double>& acc_ios, std::vector<double>& remain_rr, std::vector<double>& remain_p) {
     acc_ios.resize(max_offset, 0);
@@ -212,21 +211,41 @@ struct DynamicCompactionerV3 {
     }
   }
 
-  // void adaptive_lookforward(const TreeState& cur_state) {
-  //   int run_nums = cur_state.total_runs;
-  //   int64_t total_size = 0;
-  //   for (int i = 0; i < (int)cur_state.level_runs.size(); i++) {
-  //     total_size += std::accumulate(cur_state.level_runs[i].begin(), cur_state.level_runs[i].end(), 0L);
-  //   }
-  //   int lf = run_nums * std::floor(std::log2(1.0 * total_size / buffer_size));
-  //   lf = std::max(50, lf);
-  //   lookforward = lf;
-  // }
+  void adaptive_lookforward(const TreeState& cur_state, int start_win_idx) {
+    int lf = 50;
+    for (int i = 0; i < (int)cur_state.level_runs.size(); i++) {
+      for (int j = 0; j < (int)cur_state.level_runs[i].size(); j++) {
+        int b = std::floor(std::log2(std::max(2.0, cur_state.level_runs[i][j] * 1.0 / buffer_size)));
+        lf += 2 * b;
+      }
+    }
+    // look forward 100 window to find the proportion of write
+    int write_nums = 0, total_nums = 0, rnums = 0;
+    for (int i = start_win_idx; i < start_win_idx + 100 && i < (int)workload.windows.size(); i++) {
+      write_nums += workload.windows[i].update_nums;
+      rnums += workload.windows[i].range_lookup_nums;
+      total_nums += workload.windows[i].range_lookup_nums + workload.windows[i].point_lookup_nums + workload.windows[i].update_nums;
+    }
+    double wprop = write_nums * 1.0 / total_nums;
+    double rprop = rnums * 1.0 / total_nums;
+    // std::cout << "Upper lookforward (" << start_win_idx << "): "
+    //   << lf << ", write prop: " << prop
+    //   << ", total runs: " << cur_state.total_runs
+    //   << ", select lf: " << lf * (1 - prop)
+    //   << std::endl;
+    lf *= (1 - wprop - rprop);
+    lookforward.store(lf);
+  }
 
   DynAction GetBestAction(TreeState& cur_state, int start_win_idx) {
+    most_recent_state = cur_state;
     if (cur_state.max_level_runs == 0 || workload.windows.size() == 0) {
       return DynAction(); // do nothing
     }
+    if (start_win_idx >= (int)workload.windows.size()) {
+      return DynAction();
+    }
+    adaptive_lookforward(cur_state, start_win_idx);
     DynAction best_action;
     std::vector<double> acc_ios, remain_rrs, remain_ps;
     get_win_acc_ios(cur_state.total_runs, start_win_idx, lookforward, acc_ios, remain_rrs, remain_ps);
@@ -249,46 +268,6 @@ struct DynamicCompactionerV3 {
         double cost = prev_rr * idx / 2 + prev_p * 0.01 / 2;
         action.reward -= cost;
       }
-      if (action.reward > best_action.reward) {
-        best_action = action;
-      }
-    }
-    return best_action;
-  }
-
-  DynAction GetBestActionV2(TreeState& cur_state, int start_win_idx) {
-    if (cur_state.max_level_runs == 0 || workload.windows.size() == 0) {
-      return DynAction(); // do nothing
-    }
-    DynAction best_action;
-    std::vector<double> acc_ios, remain_rrs, remain_ps;
-    get_win_acc_ios(cur_state.total_runs, start_win_idx, 1000, acc_ios, remain_rrs, remain_ps);
-    for (auto& action : cur_state.actions) {
-      // find first idx that acc_ios[idx] >= action.compaction_size
-      int idx = 0;
-      auto it = std::lower_bound(acc_ios.begin(), acc_ios.end(), action.compaction_size);
-      idx = it - acc_ios.begin();
-      if (it == acc_ios.end() || idx >= (int)acc_ios.size() - 1) {
-        action.reward = 0;
-        continue;
-      }
-      action.estimate_finished_idx = idx;
-      int reduced_run = action.reward;
-      double cost = 0;
-      if (idx > 0) {
-        double prev_rr = remain_rrs[0] - remain_rrs[idx - 1],
-          prev_p = remain_ps[0] - remain_ps[idx - 1];
-        cost = prev_rr * idx / 2 + prev_p * 0.01 * idx / 2;
-      }
-      double offset_cost = 0;
-      int elapsed_win = 0;
-      for (int i = idx + 1; offset_cost < cost && i < (int)remain_rrs.size(); i++) {
-        int range_nums = workload.windows[start_win_idx + i].range_lookup_nums;
-        int point_nums = workload.windows[start_win_idx + i].point_lookup_nums;
-        offset_cost += range_nums * reduced_run + point_nums * 0.01 * reduced_run;
-        elapsed_win ++;
-      }
-      action.reward = reduced_run - elapsed_win;
       if (action.reward > best_action.reward) {
         best_action = action;
       }

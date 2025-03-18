@@ -58,7 +58,9 @@ class DynamicCompactionBuilder {
         max_level_runs = state.level_runs[i].size();
       }
       // sort level_runs[i], desc
-      std::sort(state.level_runs[i].begin(), state.level_runs[i].end(), std::greater<uint64_t>());
+      if (i > 0) {
+        std::sort(state.level_runs[i].begin(), state.level_runs[i].end(), std::greater<uint64_t>());
+      }
     }
     state.max_level_runs = max_level_runs;
   }
@@ -383,9 +385,11 @@ class DynamicCompactionBuilder {
       CompactionInputFiles input;
       auto files = vstorage_->LevelFiles(i);
       // sort files in desc order
-      std::sort(files.begin(), files.end(), [](FileMetaData* a, FileMetaData* b) {
-        return a->fd.file_size > b->fd.file_size;
-      });
+      if (i > 0) {
+        std::sort(files.begin(), files.end(), [](FileMetaData* a, FileMetaData* b) {
+          return a->fd.file_size > b->fd.file_size;
+        });
+      }
       for (int j = 0; j < (int)files.size(); j++) {
         if (files[j]->being_compacted) {
           // should not happen
