@@ -925,11 +925,30 @@ uint64_t GetMarkedFileCountForCompactionSpeedup() {
 }  // anonymous namespace
 
 std::pair<WriteStallCondition, WriteStallCause>
+DynamicWriteStallCause(int num_files, const MutableCFOptions& mcf_options) {
+  auto compactioner = mcf_options.comp_controller->compactioner;
+  // compactioner->mtx.lock();
+  // auto [m, c] = compactioner->Mc;
+  // compactioner->mtx.unlock();
+  auto [m, c] = compactioner->get_Mc();
+  if (num_files >= 4 * c) {
+    return {WriteStallCondition::kStopped, WriteStallCause::kL0FileCountLimit};
+  }
+  if (num_files >= c) {
+    return {WriteStallCondition::kDelayed, WriteStallCause::kL0FileCountLimit};
+  }
+  return {WriteStallCondition::kNormal, WriteStallCause::kNone};
+}
+
+std::pair<WriteStallCondition, WriteStallCause>
 ColumnFamilyData::GetWriteStallConditionAndCause(
     int num_unflushed_memtables, int num_l0_files,
     uint64_t num_compaction_needed_bytes,
     const MutableCFOptions& mutable_cf_options,
     const ImmutableCFOptions& immutable_cf_options) {
+  if (mutable_cf_options.comp_controller->compactioner != nullptr) {
+    return DynamicWriteStallCause(num_l0_files, mutable_cf_options);
+  }
   if (num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
     return {WriteStallCondition::kStopped, WriteStallCause::kMemtableLimit};
   } else if (!mutable_cf_options.disable_auto_compactions &&
@@ -971,6 +990,14 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
     uint64_t compaction_needed_bytes =
         vstorage->estimated_compaction_needed_bytes();
 
+    auto compactioner = mutable_cf_options.comp_controller->compactioner;
+    int l0_file_num = vstorage->l0_delay_trigger_count();
+    if (compactioner != nullptr) {
+      l0_file_num = 0;
+      for (int i = 0; i < vstorage->num_levels(); i++) {
+        l0_file_num += vstorage->NumLevelFiles(i);
+      }
+    }
     auto write_stall_condition_and_cause = GetWriteStallConditionAndCause(
         imm()->NumNotFlushed(), vstorage->l0_delay_trigger_count(),
         vstorage->estimated_compaction_needed_bytes(), mutable_cf_options,

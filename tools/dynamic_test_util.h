@@ -2,7 +2,6 @@
 
 #include "dynamic_lookforward.h"
 
-#include "dynamic_thread_pool.h"
 #include "dynamic_test_monitor.h"
 
 #include <thread>
@@ -48,8 +47,20 @@ struct WorkloadManager {
   DynamicTestLogger* test_monitor_;
   std::vector<int> record_times_;
   std::vector<OpType> record_ops_;
+  int64_t total_time;
 
-  void do_update(rocksdb::DB* db, const std::string& key) {
+  int sleep_time_ = 0;
+
+  int mc_search_len_ = 400;
+
+  const double kIOTime = 15;
+
+  int parallel_factor = 1;
+  std::mutex mtx;
+
+  std::vector<int> new_workload_starts;
+  std::vector<double> workload_stats;
+  void do_update(rocksdb::DB* db, const std::string& key, bool use_mtx=false) {
     auto value_str = key;
     PadStringWithPrefix(value_size_, value_str);
     auto key_str = key;
@@ -61,11 +72,17 @@ struct WorkloadManager {
       exit(1);
     }
     std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
-    record_times_.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
-    record_ops_.push_back(OpType::UPDATE);
+    if (!use_mtx) {
+      record_times_.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+      record_ops_.push_back(OpType::UPDATE);
+    } else {
+      std::lock_guard<std::mutex> guard(mtx);
+      record_times_.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+      record_ops_.push_back(OpType::UPDATE);
+    }
   }
 
-  void do_point_lookup(rocksdb::DB* db, const std::string& key) {
+  void do_point_lookup(rocksdb::DB* db, const std::string& key, bool use_mtx=false) {
     auto query_key = key;
     std::string val;
     PadStringWithPrefix(key_size_, query_key);
@@ -76,12 +93,18 @@ struct WorkloadManager {
       exit(1);
     }
     std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
-    record_times_.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
-    record_ops_.push_back(OpType::POINT_LOOKUP);
+    if (!use_mtx) {
+      record_times_.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+      record_ops_.push_back(OpType::POINT_LOOKUP);
+    } else {
+      std::lock_guard<std::mutex> guard(mtx);
+      record_times_.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+      record_ops_.push_back(OpType::POINT_LOOKUP);
+    }
     return;
   }
 
-  void do_range_lookup(rocksdb::DB* db, const std::string& start_key, int len) {
+  void do_range_lookup(rocksdb::DB* db, const std::string& start_key, int len, bool use_mtx=false) {
     auto key = start_key;
     PadStringWithPrefix(key_size_, key);
     auto it = db->NewIterator(rocksdb::ReadOptions());
@@ -94,9 +117,14 @@ struct WorkloadManager {
       it->Next();
     }
     std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
-    record_times_.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
-    record_ops_.push_back(OpType::RANGE_LOOKUP);
-    // test_monitor_->Log(MonitorOpType::RANGE_LOOKUP, std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
+    if (!use_mtx) {
+      record_times_.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+      record_ops_.push_back(OpType::RANGE_LOOKUP);
+    } else {
+      std::lock_guard<std::mutex> guard(mtx);
+      record_times_.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+      record_ops_.push_back(OpType::RANGE_LOOKUP);
+    }
     delete it;
     return;
   }
@@ -115,7 +143,30 @@ struct WorkloadManager {
         auto key = window->keys[window->cur_op_idx];
         this->do_point_lookup(db, key);
       }
+      if (sleep_time_ > 0) {
+        std::this_thread::sleep_for(std::chrono::microseconds(sleep_time_));
+      }
       window->cur_op_idx++;
+    }
+  }
+
+  void ProcessWindowInParallel(rocksdb::DB* db, const std::shared_ptr<WorkloadWindow>& window) {
+    int length = (int)window->ops.size();
+    omp_set_num_threads(parallel_factor);
+    # pragma omp parallel for
+    for (int i = 0; i < length; i++) {
+      if (window->ops[i] == OpType::RANGE_LOOKUP) {
+        auto key = window->keys[i];
+        this->do_range_lookup(db, key, this->range_lookup_len_, true);
+      } else if (window->ops[i] == OpType::UPDATE) {
+        // do update
+        auto key = window->keys[i];
+        this->do_update(db, key, true);
+      } else {
+        // point lookup
+        auto key = window->keys[i];
+        this->do_point_lookup(db, key, true);
+      }
     }
   }
 
@@ -147,6 +198,10 @@ struct WorkloadManager {
         window->ops.push_back(OpType::UPDATE);
         window->keys.push_back(tokens[1]);
         update_cnt++;
+      } else if (tokens[0] == "UPDATE") {
+        window->ops.push_back(OpType::UPDATE);
+        window->keys.push_back("2" + tokens[1]);
+        update_cnt++;
       } else if (tokens[0] == "READ") {
         window->ops.push_back(OpType::POINT_LOOKUP);
         window->keys.push_back(tokens[1]);
@@ -160,70 +215,212 @@ struct WorkloadManager {
         window->total_point_lookup_cnt = point_lookup_cnt;
         workloads_.push_back(window);
 
-        DynCompactionV3::SearchNode node;
-        node.range_lookup_nums = range_lookup_cnt;
-        node.point_lookup_nums = point_lookup_cnt;
-        node.update_nums = update_cnt;
-        node.prefix_sum_range_lookups = range_lookup_sums;
-        node.prefix_sum_point_lookups = point_lookup_sums;
-        compaction_controller_->compactioner->workload.Append(node);
-
         window = std::make_shared<WorkloadWindow>();
         update_cnt = 0;
         range_lookup_cnt = 0;
         point_lookup_cnt = 0;
       }
     }
-    // repeat the last search node 500 times
-    auto node = compaction_controller_->compactioner->workload.At(compaction_controller_->compactioner->workload.windows.size() - 1);
-    for (int i = 0; repeat && i < 500; i++) {
-      compaction_controller_->compactioner->workload.Append(node);
+    if (window->ops.size() > 0) {
+      window->cur_op_idx = 0;
+      window->total_range_lookup_cnt = range_lookup_cnt;
+      window->total_update_cnt = update_cnt;
+      window->total_point_lookup_cnt = point_lookup_cnt;
+      workloads_.push_back(window);
     }
+    new_workload_starts.push_back(0);
+    for (int i = 1; i < (int)workloads_.size(); i++) {
+      double r = 1.0 * workloads_[i]->total_range_lookup_cnt / workloads_[i]->ops.size();
+      double u = 1.0 * workloads_[i]->total_update_cnt / workloads_[i]->ops.size();
+      double p = 1.0 * workloads_[i]->total_point_lookup_cnt / workloads_[i]->ops.size();
+      double prev_r = 1.0 * workloads_[i - 1]->total_range_lookup_cnt / workloads_[i - 1]->ops.size();
+      double prev_u = 1.0 * workloads_[i - 1]->total_update_cnt / workloads_[i - 1]->ops.size();
+      double prev_p = 1.0 * workloads_[i - 1]->total_point_lookup_cnt / workloads_[i - 1]->ops.size();
+
+      // change over 10%
+      if (r - prev_r > 0.05 || u - prev_u > 0.05 || p - prev_p > 0.05) {
+        new_workload_starts.push_back(i);
+      }
+    }
+    // int ops = 0;
+    // for (int i = 0; i < (int)workloads_.size(); i++) {
+    //   ops += workloads_[i]->ops.size();
+    //   if (ops >= 1024000 * 4) {
+    //     new_workload_starts.push_back(i);
+    //     ops = 0;
+    //   }
+    // }
+    // workload_stats = {0.9, 0.66, 0.43, 0.24, 0.11, 0.04, 0.03, 0.09, 0.21, 0.38, 0.6, 0.84};
     f.close();
   }
 
 
   void StartProcessing(rocksdb::DB* db) {
+    std::cout << "Total entry: " << get_db_size(db) << std::endl;
     bool need_manual_compaction = db->GetOptions().compaction_style == rocksdb::kCompactionStyleDynamic;
+    print_config();
     double r = 0, u = 0, p = 0;
-    // if (need_manual_compaction) {
-    //   r = workloads_[0]->total_range_lookup_cnt / (double)workloads_[0]->ops.size();
-    //   u = workloads_[0]->total_update_cnt / (double)workloads_[0]->ops.size();
-    //   p = workloads_[0]->total_point_lookup_cnt / (double)workloads_[0]->ops.size();
-    //   auto recent_state = compaction_controller_->compactioner->most_recent_state;
-    //   compaction_controller_->compactioner->lookforward = adaptive_lookforward_simulate(
-    //     recent_state, buffer_size_, prev_lookforward_max, r, u, p, false
-    //   );
-    // }
-    int64_t finished_ops = 0;
+    double wait_io = sleep_time_ * 1.0 / kIOTime;
+    auto compactioner = compaction_controller_->compactioner;
+    if (need_manual_compaction) {
+      compactioner->wait_io = wait_io;
+      r = workloads_[0]->total_range_lookup_cnt;
+      u = workloads_[0]->total_update_cnt;
+      p = workloads_[0]->total_point_lookup_cnt;
+      // r = 2048.0 / (1 - workload_stats[0]) * workload_stats[0];
+      // u = 2048;
+      // p = 0;
+      compactioner->set_workload(
+        {r, u, p}
+      );
+      compactioner->parallel_factor = parallel_factor;
+      auto latest_state = compactioner->get_most_recent_state();
+
+      int remaining_window_cnt = 0;
+      auto it = std::upper_bound(new_workload_starts.begin(), new_workload_starts.end(), 0);
+      if (it == new_workload_starts.end()) {
+        remaining_window_cnt = (int)workloads_.size();
+      } else {
+        remaining_window_cnt = *it;
+      }
+      auto [m, c] = FindBestMC(latest_state, buffer_size_, r, u, p, wait_io, mc_search_len_, remaining_window_cnt, parallel_factor);
+      std::cout << "Window 0" << " : new M: " << m << ", new C: " << c 
+            << ", (r,u,p): " << r << ", " << u << ", " << p
+            << ", current total run: " << latest_state.total_runs << ", remaining_window_cnt: " << remaining_window_cnt << std::endl;
+      compactioner->set_Mc({m, c});
+    }
+    int64_t mc_threshold = 0;
+    int64_t reclaim_threshold = 0;
+    int64_t total_ops = 0;
     for (int i = 0; i < (int)workloads_.size(); i++) {
       std::cout << "window #" << i << ", range lookup cnt: " << workloads_[i]->total_range_lookup_cnt
         << ", update cnt: " << workloads_[i]->total_update_cnt
-        << ", point lookup cnt: " << workloads_[i]->total_point_lookup_cnt  << std::endl;
-      ProcessWindow(db, workloads_[i]);
-      finished_ops += workloads_[i]->ops.size();
-      // if (need_manual_compaction) {
-      compaction_controller_->cur_win_idx ++;
-      // reset the search depth
-      // if (need_manual_compaction && i + 1 < (int)workloads_.size()) {
-      //   double new_r = workloads_[i + 1]->total_range_lookup_cnt / (double)workloads_[i + 1]->ops.size();
-      //   double new_u = workloads_[i + 1]->total_update_cnt / (double)workloads_[i + 1]->ops.size();
-      //   double new_p = workloads_[i + 1]->total_point_lookup_cnt / (double)workloads_[i + 1]->ops.size();
-      //   bool fast_return = std::abs(new_r - r) / r <= 0.1 && std::abs(new_u - u) / u <= 0.1 && std::abs(new_p - p) / p <= 0.1;
-      //   auto recent_state = compaction_controller_->compactioner->most_recent_state;
-      //   auto start_time = std::chrono::high_resolution_clock::now();
-      //   int new_lf = adaptive_lookforward_simulate(
-      //     recent_state, buffer_size_, prev_lookforward_max, new_r, new_u, new_p, fast_return
-      //   );
-      //   auto end_time = std::chrono::high_resolution_clock::now();
-      //   if (new_lf != 0) {
-      //     std::cout << "New lookforward: " << new_lf 
-      //       << ", used time: " << std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() 
-      //       << " us" << std::endl;
-      //     compaction_controller_->compactioner->lookforward = new_lf;
-      //   }
+        << ", point lookup cnt: " << workloads_[i]->total_point_lookup_cnt
+        << ", acc avg: " << get_acc_avg() << std::endl;
+      auto start = std::chrono::high_resolution_clock::now();
+      if (parallel_factor == 1) {
+        ProcessWindow(db, workloads_[i]);
+      } else {
+        ProcessWindowInParallel(db, workloads_[i]);
+      }
+      // ProcessWindow(db, workloads_[i]);
+      auto end = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+      total_time += duration;
+      mc_threshold += workloads_[i]->ops.size();
+      reclaim_threshold += workloads_[i]->ops.size();
+      total_ops += workloads_[i]->ops.size();
+      // if (total_ops >= 20480000) {
+      //   compaction_controller_->transit.store(4);
+      //   total_ops = 0;
+      //   std::cout << "Trigger manual compaction...." << std::endl;
       // }
+      // if (total_ops >= 102400) {
+      //   // get db size
+      //   uint64_t inserted_size = i * 2048 * 1024 + 40UL * (1<<30);
+      //   std::cout << "Inserted Data: " << inserted_size
+      //     << ", db size: " << get_db_size(db)
+      //     << ", space amp: " << (double)get_db_size(db) / inserted_size
+      //     << std::endl;
+      //   total_ops = 0;
+      // }
+      if (need_manual_compaction && i + 1 < (int)workloads_.size()) {
+        r = workloads_[i + 1]->total_range_lookup_cnt;
+        u = workloads_[i + 1]->total_update_cnt;
+        p = workloads_[i + 1]->total_point_lookup_cnt;
+        // auto it = std::upper_bound(new_workload_starts.begin(), new_workload_starts.end(), i + 1);
+        // if (it == new_workload_starts.end()) {
+        //   r = 2048.0 / (1 - workload_stats[workload_stats.size() - 1]) * workload_stats[workload_stats.size() - 1];
+        //   u = 2048;
+        //   p = 0;
+        // } else {
+        //   int idx = it - new_workload_starts.begin() - 1;
+        //   // std::cout << "idx: " << idx << std::endl;
+        //   r = 2048.0 / (1 - workload_stats[idx]) * workload_stats[idx];
+        //   u = 2048;
+        //   p = 0;
+        // }
+        compactioner->set_workload(
+          { r, u, p }
+        );
+        if (compactioner->need_reset_Mc() || mc_threshold >= 2048000) {
+          auto latest_state = compactioner->get_most_recent_state();
+          auto start = std::chrono::high_resolution_clock::now();
+          int remaining_window_cnt = 0;
+
+          auto it = std::upper_bound(new_workload_starts.begin(), new_workload_starts.end(), i + 1);
+
+          if (it == new_workload_starts.end()) {
+            remaining_window_cnt = (int)workloads_.size() - (i + 1);
+          } else {
+            remaining_window_cnt = *it - (i + 1);
+          }
+
+          auto [m, c] = FindBestMC(latest_state, buffer_size_, r, u, p, wait_io, mc_search_len_, remaining_window_cnt, parallel_factor);
+          auto end = std::chrono::high_resolution_clock::now();
+          std::cout << "FindBestMC time: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() << std::endl;
+          // // set the new M and C
+          if ((double)p > 0.9 * (r + u + p)) {
+            m = 5;
+            c = 1000000;
+          }
+          compactioner->set_Mc({m, c});
+          std::cout << "Window " << i << " : new M: " << m << ", new C: " << c 
+            << ", (r,u,p): " << r << ", " << u << ", " << p
+            << ", current total run: " << latest_state.total_runs << ", remaining_window_cnt: " << remaining_window_cnt << std::endl;
+          mc_threshold = 0;
+        }
+        if (reclaim_threshold >= 10240000) {
+          reclaim_frag();
+          reclaim_threshold = 0;
+          std::cout << "Current Avg: " << get_acc_avg() << std::endl;
+        }
+      }
     }
+    std::cout << "Total entry: " << get_db_size(db) << std::endl;
+  }
+  double get_acc_avg() {
+    return std::accumulate(record_times_.begin(), record_times_.end(), 0UL) * 1.0 / record_times_.size();
+  }
+
+  void print_config() {
+    std::cout << "key size: " << key_size_
+      << ", value size: " << value_size_
+      << ", range lookup len: " << range_lookup_len_
+      << ", buffer size: " << buffer_size_ << std::endl
+      << "sleep time: " << sleep_time_
+      << ", mc search len: " << mc_search_len_ << std::endl
+      << "workload size: " << workloads_.size() << std::endl;
+
+    for (auto idx : new_workload_starts) {
+      std::cout << "new workload start at: " << idx << std::endl;
+    }
+  }
+
+  uint64_t get_db_size(rocksdb::DB* db) {
+    std::string num_keys;
+    db->GetProperty("rocksdb.estimate-num-keys", &num_keys);
+    int num = std::stoi(num_keys);
+    return num;
+  }
+
+  void checkpoint() {
+    std::string cmd = "rm -rf /tmp/checkpoint && cp -r /tmp/db /tmp/checkpoint";
+    int ret = system(cmd.c_str());
+    if (ret != 0) {
+      std::cout << "fail to checkpoint: " << ret << std::endl;
+    }
+    std::cout << "Finish checkpoint" << std::endl;
+  }
+  void reclaim_frag() {
+    std::cout << "Trimming..." << std::endl;
+    std::string sudo_passwd = "";
+    std::string cmd = "echo \"" + sudo_passwd + "\" | sudo -S fstrim -v /tmp";
+    int ret = system(cmd.c_str());
+    if (ret != 0) {
+      std::cout << "fail to trim: " << ret << std::endl;
+    }
+    std::cout << "Finish trimming" << std::endl;
   }
 
   WorkloadManager(
@@ -232,13 +429,19 @@ struct WorkloadManager {
     int key_size = 24,
     int value_size = 1000,
     int range_lookup_len = 16,
-    uint64_t buffer_size = 2 * (1<<20)
+    uint64_t buffer_size = 2 * (1<<20),
+    int sleep_time = 0,
+    int mc_search_len = 400,
+    int para_f = 1
   ) :
     key_size_(key_size),
     value_size_(value_size),
     range_lookup_len_(range_lookup_len),
     buffer_size_(buffer_size),
     compaction_controller_(comp),
-    test_monitor_(logger)
+    test_monitor_(logger),
+    sleep_time_(sleep_time),
+    mc_search_len_(mc_search_len),
+    parallel_factor(para_f)
   {}
 };

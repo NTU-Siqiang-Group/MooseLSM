@@ -1,18 +1,15 @@
-#include "rocksdb/dyncompactionv3.h"
-#include "dynamic_test_util.h"
+#include "rocksdb/options.h"
+#include "rocksdb/experimental.h"
 
-#include "gflags/gflags.h"
 #include <algorithm>
+#include <cmath>
+#include <omp.h>
 
-DEFINE_string(query_file, "workloads/query2.dat", "query file");
-DEFINE_int32(lookforward, 100, "lookforward");
-DEFINE_bool(fixed_lookforward, true, "fixed lookforward");
+using DynCompactionV4::TreeState;
+using DynCompactionV4::DynAction;
+using DynCompactionV4::DynamicCompactionerV4;
 
-#define log_base(x, base) (std::log(x) / std::log(base))
-
-const uint64_t buffer_size = 2 * (1<<20);
-
-void updateState(DynCompactionV3::TreeState& state, const DynCompactionV3::DynAction& action) {
+void apply_to_tree(TreeState& state, const DynAction& action) {
   if (action.start_level < 0) {
     return;
   }
@@ -43,7 +40,7 @@ void updateState(DynCompactionV3::TreeState& state, const DynCompactionV3::DynAc
         total_runs ++;
       }
     }
-    if (new_runs.size() > max_level_runs) {
+    if ((int)new_runs.size() > max_level_runs) {
       max_level_runs = new_runs.size();
     }
     // sort desc
@@ -55,172 +52,277 @@ void updateState(DynCompactionV3::TreeState& state, const DynCompactionV3::DynAc
   state.max_level_runs = max_level_runs;
 }
 
-int updateLookforward(DynCompactionV3::TreeState& current_state) {
-  std::unordered_map<int, int> size_cnts;
-  for (int i = 0; i < (int)current_state.level_runs.size(); i++) {
-    for (int j = 0; j < (int)current_state.level_runs[i].size(); j++) {
-      int64_t run_size = current_state.level_runs[i][j];
-      int64_t bucket = std::floor(std::max(0.0, std::log2(run_size / buffer_size)));
-      size_cnts[bucket] ++;
+
+
+DynAction get_best_action_with_forward(TreeState& cur_state, int M, int c,
+    int64_t buffer_size, int r, int u, int p, double wait_io, double parallel_factor) {
+  DynAction best_action;
+  std::vector<double> acc_ios;
+  DynamicCompactionerV4::get_win_acc_ios(cur_state.total_runs, 500, acc_ios, buffer_size, c, r, u, p, wait_io, parallel_factor);
+  // get estimate finished idx for action
+  for (auto& action : cur_state.actions) {
+    DynamicCompactionerV4::get_reward_for_action(action, cur_state.total_runs, acc_ios, c, M, r, u, p, buffer_size, wait_io, parallel_factor);
+    if (action.reward > best_action.reward) {
+      best_action = action;
     }
   }
-  int score = 0;
-  for (auto& kv : size_cnts) {
-    score += kv.first * log_base(kv.second, 1.1);
-  }
-  return 100 + score;
+  return best_action;
 }
 
-int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  rocksdb::Options opt;
-  opt.comp_controller = new rocksdb::AtomicCompactionController(buffer_size);
-  opt.comp_controller->compactioner = new DynCompactionV3::DynamicCompactionerV3(2 * (1<<20), FLAGS_lookforward);
-  WorkloadManager mng(opt.comp_controller, nullptr, 24, 1000, 16, 2 * (1<<20));
-  mng.InitWorkloadFromFile(FLAGS_query_file, false);
-  // mng.InitWorkloadFromFile(FLAGS_query_file, false);
-  auto back_node = opt.comp_controller->compactioner->workload.windows.back();
-  for (int i = 0; i < 500; i++) {
-    opt.comp_controller->compactioner->workload.Append(back_node);
+double get_cost_for_mc(const TreeState& latest_state, int M, int c, int64_t buffer_size,
+  int r, int u, int p, double wait_io, int mc_search_len, int remaining_window_cnt, double parallel_factor) {
+  double cost = 0;
+  int64_t ops = 0;
+  auto tmp_state = latest_state;
+  double factor = parallel_factor;
+  if (factor > 1) {
+    factor /= 2;
   }
+  int iter_cnt = 0;
+  for (int i = 0; i < mc_search_len; i++) {
+    iter_cnt ++;
+    tmp_state.actions.clear();
+    auto start = std::chrono::high_resolution_clock::now();
+    tmp_state.EnumerateActions();
+    auto end = std::chrono::high_resolution_clock::now();
+    // std::cout << "enum time: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() << "us" << std::endl;
+    auto action = get_best_action_with_forward(tmp_state, M, c, buffer_size, r, u, p, wait_io, parallel_factor);
+    if (action.start_level < 0) {
+      action.estimate_finished_idx = 0;
+    }
+    // std::cout << action.ToString() << std::endl;
+    int64_t total_runs = tmp_state.total_runs;
+    double remaining_compaction_size = action.compaction_size;
 
-  DynCompactionV3::TreeState cur_state, target_state;
-  cur_state.level_runs.resize(4);
-  cur_state.max_level_runs = 1;
-  cur_state.total_runs = 1;
-  cur_state.level_runs[3].push_back(40UL * (1<<30)); // initialized size 40GB
-  target_state = cur_state;
+    int elasped_window_cnt = action.estimate_finished_idx + 1;
 
-  DynCompactionV3::DynAction ongoing_action;
-  int next_finished_idx = -1;
+    if (remaining_window_cnt < remaining_window_cnt) {
+      elasped_window_cnt = remaining_window_cnt;
+    }
 
-  std::vector<double> costs;
-  std::vector<WorkloadManager::OpType> ops;
-  for (int i = 0; i < (int)mng.workloads_.size(); i++) {
-    auto window = mng.workloads_[i];
-    std::vector<double> window_costs;
-    std::vector<WorkloadManager::OpType> window_ops;
+    remaining_window_cnt -= elasped_window_cnt;
 
-    double range_lookup_costs = 0;
-    double point_lookup_costs = 0;
-    double update_costs = 0;
-
-    double range_lookup_percent = 0;
-    double point_lookup_percent = 0;
-    double update_percent = 0;
-    while (window->cur_op_idx < (int)window->ops.size()) {
-      auto op = window->ops[window->cur_op_idx];
-      window_ops.push_back(op);
-      if (op == WorkloadManager::OpType::RANGE_LOOKUP) {
-        range_lookup_costs += cur_state.total_runs;
-        window_costs.push_back(cur_state.total_runs);
-        range_lookup_percent++;
-      } else if (op == WorkloadManager::OpType::UPDATE) {
-        window_costs.push_back(1024.0 / 4096);
-        update_costs += 1024.0 / 4096;
-        update_percent++;
-      } else if (op == WorkloadManager::OpType::POINT_LOOKUP) {
-        window_costs.push_back(0.01 * cur_state.total_runs + 1);
-        point_lookup_percent++;
-        point_lookup_costs += 0.01 * cur_state.total_runs + 1;
+    for (int j = 0; j < elasped_window_cnt; j++) {
+      double tmp_cost = total_runs * r + (total_runs * 0.01 + 1) * p + buffer_size / 4096.0;
+      // double tmp_cost = total_runs * r + (total_runs * 1.01) * p + buffer_size / 4096.0;
+      cost += tmp_cost;
+      remaining_compaction_size -= tmp_cost / factor;
+      if (total_runs >= c && total_runs < c * 4) {
+        cost += 1.0 * u * DynamicCompactionerV4::kStallCost;
+        remaining_compaction_size -= 1.0 * u * DynamicCompactionerV4::kStallCost;
       }
-      window->cur_op_idx ++;
+      if (total_runs >= c * 4) {
+        // stop the write until the compaction is done
+        // std::cout << "Trigger write stop: " << j << "/" << action.estimate_finished_idx << std::endl;
+        cost += std::max(0.0, remaining_compaction_size) * factor;
+        remaining_compaction_size = 0;
+      }
+      total_runs ++;
+      ops += r + p + u;
     }
-    cur_state.level_runs[0].push_back(buffer_size);
-    target_state.level_runs[0].push_back(buffer_size);
-    cur_state.total_runs ++;
-    target_state.total_runs ++;
-
-    if (cur_state.level_runs[0].size() > cur_state.max_level_runs) {
-      cur_state.max_level_runs = cur_state.level_runs[0].size();
+    apply_to_tree(tmp_state, action);
+    for (int k = 0; k < elasped_window_cnt; k++) {
+      tmp_state.level_runs[0].push_back(buffer_size);
+      tmp_state.total_runs ++;
     }
-    if (target_state.level_runs[0].size() > target_state.max_level_runs) {
-      target_state.max_level_runs = target_state.level_runs[0].size();
+    if ((int)tmp_state.level_runs[0].size() > tmp_state.max_level_runs) {
+      tmp_state.max_level_runs = tmp_state.level_runs[0].size();
     }
-    
-    if (next_finished_idx <= i) {
-      // install the action
-      cur_state = target_state;
-      ongoing_action = DynCompactionV3::DynAction(); // reset
-      next_finished_idx = -1;
-    }
-    // trigger a compaction
-    if (ongoing_action.start_level < 0) {
-      // no compaction is doing
-      cur_state.EnumerateActions();
-      ongoing_action = opt.comp_controller->compactioner->GetBestAction(cur_state, i + 1);
-      next_finished_idx = i + ongoing_action.estimate_finished_idx;
-      target_state = cur_state;
-      updateState(target_state, ongoing_action);
-    }
-    if (!FLAGS_fixed_lookforward) {
-      opt.comp_controller->compactioner->lookforward = updateLookforward(cur_state);
-    }
-    if (i % 100 == 0) {
-      std::cout << "Processed: " << i << "/" << mng.workloads_.size() << std::endl;
-    }
-    // double avg_range_lookup_costs = range_lookup_costs / range_lookup_percent;
-    // double avg_point_lookup_costs = point_lookup_costs / point_lookup_percent;
-    // double avg_update_costs = update_costs / update_percent;
-    // std::cout << "Window: " << i << "/" << mng.workloads_.size() << std::endl
-    //   << "Current state: \n" << cur_state.ToString()
-    //   << "Total Runs: " << cur_state.total_runs << std::endl
-    //   << "Window ops: (" << update_percent << "," << range_lookup_percent << "," << point_lookup_percent << ")" << std::endl
-    //   << "Window costs: (" << avg_update_costs << "," << avg_range_lookup_costs << "," << avg_point_lookup_costs << ")" << std::endl
-    //   << "Action: " << ongoing_action.ToString()
-    //   << "Lookforward: " << opt.comp_controller->compactioner->lookforward << std::endl
-    //   << "----------------------------------------" << std::endl;
-    costs.insert(costs.end(), window_costs.begin(), window_costs.end());
-    ops.insert(ops.end(), window_ops.begin(), window_ops.end());
-  }
-
-  double avg_range_lookup_costs = 0;
-  double avg_point_lookup_costs = 0;
-  double avg_update_costs = 0;
-  int range_lookup_cnt = 0;
-  int point_lookup_cnt = 0;
-  int update_cnt = 0;
-  for (int i = 0; i < (int)costs.size(); i++) {
-    if (ops[i] == WorkloadManager::OpType::RANGE_LOOKUP) {
-      avg_range_lookup_costs += costs[i];
-      range_lookup_cnt++;
-    } else if (ops[i] == WorkloadManager::OpType::UPDATE) {
-      avg_update_costs += costs[i];
-      update_cnt++;
-    } else if (ops[i] == WorkloadManager::OpType::POINT_LOOKUP) {
-      avg_point_lookup_costs += costs[i];
-      point_lookup_cnt++;
+    if (remaining_window_cnt <= 0) {
+      break;
     }
   }
-  avg_range_lookup_costs /= range_lookup_cnt;
-  avg_point_lookup_costs /= point_lookup_cnt;
-  avg_update_costs /= update_cnt;
-  std::cout << "Total ops: (" << update_cnt << "," << range_lookup_cnt << "," << point_lookup_cnt << ")" << std::endl
-    << "Total costs: (" << avg_update_costs << "," << avg_range_lookup_costs << "," << avg_point_lookup_costs << ")" << std::endl;
-  // show avg per 10240000 ops
-  std::cout << "--------------------------" << std::endl;
-  for (int i = 0; i < ops.size(); i += 10240000) {
-    double rcosts = 0, pcosts = 0, ucosts = 0;
-    int rnums = 0, pnums = 0, unums = 0;
-    for (int j = i; j < std::min(i + 10240000, (int)ops.size()); j++) {
-      if (ops[j] == WorkloadManager::OpType::RANGE_LOOKUP) {
-        rcosts += costs[j];
-        rnums ++;
-      } else if (ops[j] == WorkloadManager::OpType::UPDATE) {
-        ucosts += costs[j];
-        unums ++;
-      } else if (ops[j] == WorkloadManager::OpType::POINT_LOOKUP) {
-        pcosts += costs[j];
-        pnums ++;
+  // if (M == 2 && c == 52)
+  //   std::cout << "cost: " << cost << ", ops: " << ops
+  //   << ", tree state: " << tmp_state.total_runs 
+  //   << ", remaining window cnt: " << remaining_window_cnt
+  //   << ", iter count: " << iter_cnt
+  //   << ", start state: " << latest_state.ToString()
+  //   << std::endl;
+  double avg_cost = cost / ops;
+  if (avg_cost <= 0) {
+    std::cout << "Overflow!!!!!: " << avg_cost 
+    << ", M: " << M << ", c: " << c
+    << ", r: " << r << ", u: " << u
+    << std::endl;
+    avg_cost = 1e9;
+  }
+  return avg_cost;
+}
+
+std::pair<int, int> FindBestMC(const TreeState& latest_state, int64_t buffer_size, 
+  int r, int u, int p, double wait_io, int mc_search_len, int remaining_window_cnt, double parallel_factor) {
+  double best_cost = 1e9;
+  int best_M = 0, best_c = 0;
+  std::vector<int> c_candidates = {4};
+  int upper = std::max(4 * 2, latest_state.total_runs * 2);
+  std::mutex mtx;
+  std::vector<std::tuple<int, int, double>> results;
+  for (int i = 4; i <= upper; i += 4) {
+    c_candidates.push_back(i);
+  }
+  c_candidates.push_back(1000000);
+  for (int M = 2; M < 50; M += 1) {
+    for (int c : c_candidates) {
+      results.push_back(std::make_tuple(M, c, 0));   
+    }
+  }
+  int counter = 0;
+  omp_set_num_threads(16);
+  #pragma omp parallel for
+  for (int i = 0; i < (int)results.size(); i++) {
+    auto [M, c, _] = results[i];
+    double cost = get_cost_for_mc(latest_state, M, c, buffer_size, r, u, p, wait_io, mc_search_len, remaining_window_cnt, parallel_factor);
+    // std::lock_guard<std::mutex> guard(mtx);
+    mtx.lock();
+    std::get<2>(results[i]) = cost;
+    counter ++;
+    // std::cout << "M: " << M << ", c: " << c << ", cost: " << cost << std::endl;
+    mtx.unlock();
+  }
+  // std::cout << "len of results: " << counter << ", size: " << results.size() << std::endl;
+  // find the best M and c
+  for (auto& [M, c, cost] : results) {
+    if (cost < best_cost) {
+      best_cost = cost;
+      best_M = M;
+      best_c = c;
+    }
+  }
+  // std::cout << "best cost: " << best_cost << ", best M: " << best_M << ", best c: " << best_c << std::endl;
+  return std::make_pair(best_M, best_c);
+}
+
+int get_reduced_runs(const DynAction& action) {
+  int reduced_runs = 0;
+  for (int i = 0; i < (int)action.removed_files.size(); i++) {
+    for (int j = 0; j < (int)action.removed_files[i].size(); j++) {
+      if (action.removed_files[i][j]) {
+        reduced_runs ++;
       }
     }
-    int total_ops = rnums + pnums + unums;
-    double avgrcosts = rcosts / rnums, avgpcosts = pcosts / pnums, avgucosts = ucosts / unums;
-    std::cout << "Range Lookup (%): " << (double)rnums / total_ops << ", Avg Costs: " << avgrcosts << std::endl
-      << "Point Lookup (%): " << (double)pnums / total_ops << ", Avg Costs: " << avgpcosts << std::endl
-      << "Update (%): " << (double)unums / total_ops << ", Avg Costs: " << avgucosts << std::endl
-      << "Avg Overall: " << (avgrcosts * rnums + avgpcosts * pnums + avgucosts * unums) / total_ops << std::endl
-      << "----------------------------------------" << std::endl;
+  }
+  reduced_runs -= 1;
+  return reduced_runs;
+}
+
+int main() {
+  // int64_t bf = 2L * (1<<20);
+  // double bf_io = bf * 1.0 / 4096.0;
+  // std::vector<double> comp_size{
+  //   bf_io * 10, bf_io * 100, bf_io * 200,
+  //   bf_io * 400, bf_io * 700, bf_io * 900,
+  //   bf_io * 1000, bf_io * 2000, bf_io * 3000,
+  //   bf_io * 10000, bf_io * 1e12, bf_io * 1e15,
+  // };
+  // std::vector<int> reduced_runs = {
+  //   1, 2, 3,
+  //   4, 5, 6,
+  //   7, 8, 9,
+  //   10, 11, 12,
+  // };
+  // std::vector<int> finished_idx;
+  // int c = 10, total_runs = 10;
+  // int r = 2048, u = 2048, p = 0;
+  // std::vector<double> acc_ios;
+  // std::vector<int> Ms;
+  // DynamicCompactionerV4::get_win_acc_ios(total_runs, 1000, acc_ios, bf, c, r, u, p, 0, 1);
+  // for (int i = 0; i < (int)comp_size.size(); i++) {
+  //   auto size = comp_size[i];
+  //   auto it = std::lower_bound(acc_ios.begin(), acc_ios.end(), size);
+  //   int idx = it - acc_ios.begin();
+  //   if (idx > 0) {
+  //     double inc_rr = idx * 1.0 * r / 2;
+  //     double inc_p = idx * 0.01 * p / 2;
+  //     double inc_w = 0;
+  //     if (idx + total_runs >= c) {
+  //       inc_w = std::max(0, idx + total_runs - c) * DynamicCompactionerV4::kStallCost * u;
+  //     }
+
+  //     double cost = inc_rr + inc_p + inc_w;
+  //     Ms.push_back(cost / reduced_runs[i]);
+  //   }
+  // }
+  // for (int i = 0; i < (int)Ms.size(); i++) {
+  //   std::cout << comp_size[i] / reduced_runs[i] << std::endl;
+  // }
+  // std::vector<int> cs = {10};
+  // std::vector<int> rs;
+  // for (int i = 10; i <= 90; i ++) {
+  //   double rratios = i / 100.0;
+  //   double wratios = 1 - rratios;
+  //   int r = int(2048.0 / wratios * rratios);
+  //   rs.push_back(r);
+  // }
+  // for (auto c : cs) {
+  //   std::vector<double> acc_ios;
+  //   int64_t buffer_size = 2L * (1<<20);
+  //   double size = 339968;
+  //   int total_runs = 10;
+  //   for (int i = 0; i < (int)rs.size(); i++) {
+  //     int u = 2048;
+  //     int r = rs[i];
+  //     int p = 0;
+  //     DynamicCompactionerV4::get_win_acc_ios(total_runs, 1000, acc_ios, buffer_size, c, r, u, p, 0, 1);
+  //     auto it = std::lower_bound(acc_ios.begin(), acc_ios.end(), size);
+
+  //     int idx = it - acc_ios.begin();
+  //     double factor = 1;
+  //     if (idx > 0) {
+  //       double inc_rr = idx * 1.0 * r / 2;
+  //       double inc_p = idx * 0.01 * p / 2;
+  //       double inc_w = 0;
+  //       if (idx + total_runs >= c) {
+  //         inc_w = std::max(0, idx + total_runs - c) * DynamicCompactionerV4::kStallCost * u;
+  //       }
+  //       double remaining_comp = size - inc_rr - inc_p - inc_w;
+  //       // if (idx + total_runs >= 4 * c) {
+  //       //   inc_w += std::max(0.0, remaining_comp) * factor;
+  //       // }
+  //       double cost = inc_rr + inc_p + inc_w;
+  //       // std::cout << idx << "," << std::endl;
+  //       // std::cout << std::fixed << 1.0 * r / (r + u) << "," << cost << "," << size << std::endl;
+  //       std::cout << cost << "," << std::endl;
+  //       // std::cout << r * 1.0 / (r + u) << "," << std::endl;
+  //     }
+  //   }
+  // }
+  std::vector<double> rrs = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9};
+  std::vector<double> wrs = {0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1};
+  // std::vector<double> rrs = {0.7};
+  // std::vector<double> wrs = {0.3};
+  // std::vector<int> run_nums = {1, 5, 10, 15, 20, 25, 30, 35, 40};
+  std::vector<int> run_nums;
+  for (int i = 1; i <= 40; i++) {
+    run_nums.push_back(i);
+  }
+  // std::vector<int> run_nums = {40};
+
+  TreeState state;
+  int64_t buffer_size = 2L * (1<<20);
+  state.level_runs.resize(4);
+  state.level_runs[3].push_back(40UL * (1<<30));
+  state.level_runs[2].push_back(20UL * (1<<30));
+  state.level_runs[2].push_back(10UL * (1<<30));
+  int64_t run_size = buffer_size * 20;
+  for (int i = 0; i < (int)rrs.size(); i++) {
+    for (int j = 0; j < run_nums.size(); j++) {
+      int u = 2048, p = 0;
+      int r = int(2048.0 / wrs[i] * rrs[i]);
+      auto tmp_state = state;
+      for (int k = 0; k < run_nums[j]; k++) {
+        tmp_state.level_runs[0].push_back(run_size);
+      }
+      tmp_state.total_runs = run_nums[j] + 3;
+      tmp_state.max_level_runs = run_nums[j];
+      auto [M, c] = FindBestMC(tmp_state, buffer_size, r, u, p, 0, 400, 10000, 1);
+      std::cout << "r: " << r << ", u: " << u << ", p: " << p
+        << ", M: " << M << ", c: " << c
+        << ", rratio: " << rrs[i] << ", wratio: " << wrs[i]
+        << ", run_nums: " << run_nums[j] 
+        << std::endl;
+      std::cout << "--------------------------------" << std::endl;
+    }
   }
   return 0;
 }

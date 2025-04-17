@@ -44,9 +44,8 @@ project(rocksdb
   HOMEPAGE_URL https://rocksdb.org/
   LANGUAGES CXX C ASM)
 
-find_package(Eigen3 REQUIRED)
-include_directories(${Eigen3_INCLUDE_DIRS})
-list(APPEND THIRDPARTY_LIBS Eigen3::Eigen)
+find_package(OpenMP REQUIRED)
+list(APPEND THIRDPARTY_LIBS OpenMP::OpenMP_CXX)
 
 if(APPLE)
   # On macOS Cmake, when cross-compiling, sometimes CMAKE_SYSTEM_PROCESSOR wrongfully stays
@@ -708,6 +707,7 @@ set(SOURCES
         db/db_info_dumper.cc
         db/db_iter.cc
         db/dbformat.cc
+        db/dyncompactioner.cc
         db/error_handler.cc
         db/event_helpers.cc
         db/experimental.cc

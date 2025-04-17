@@ -14,30 +14,7 @@
 #include <cmath>
 #include <mutex>
 
-namespace DynCompactionV3 {
-struct SearchNode {
-  int32_t range_lookup_nums = 0;
-  int32_t update_nums = 0;
-  int32_t point_lookup_nums = 0;
-
-  int64_t prefix_sum_range_lookups = 0;
-  int64_t prefix_sum_point_lookups = 0;
-
-  int wait_micros = 0;
-};
-
-struct Sequence {
-  std::vector<SearchNode> windows;
-
-  SearchNode At(int idx) const {
-    return windows[idx];
-  }
-
-  void Append(const SearchNode& node) {
-    windows.push_back(node);
-  }
-};
-
+namespace DynCompactionV4 {
 struct DynAction {
   std::vector<std::vector<int>> removed_files = decltype(removed_files)(20, std::vector<int>(100, 0));
   int start_level = -1;
@@ -173,112 +150,46 @@ struct TreeState {
   }
 };
 
-struct DynamicCompactionerV3 {
-  Sequence workload;
-  int64_t buffer_size = 2 * (1<<20);
-  std::atomic<int> lookforward{100};
+struct DynamicCompactionerV4 {
+ private:
   std::mutex mtx;
-
-  std::atomic<bool> trigger_write_stall;
+  int triggered_compaction_nums = 0;
+  int total_run_nums = 0;
+  double prev_avg_sorted_runs = 1;
+ public:
+  constexpr static double kStoppedCost = 1e10;
+  constexpr static double kStallCost = 4;
+  // [r,u,p]
+  std::tuple<int, int, int> workload{0, 2048, 0};
 
   TreeState most_recent_state;
 
-  double r = 0;
-  double u = 0;
-  double p = 0;
-  double prev_max_lookforward = 0;
+  std::pair<int, int> Mc{100, 2000};
 
-  void get_win_acc_ios(int cur_total_runs, int start_win_idx, int max_offset,
-    std::vector<double>& acc_ios, std::vector<double>& remain_rr, std::vector<double>& remain_p) {
-    acc_ios.resize(max_offset, 0);
-    remain_rr.resize(max_offset, 0);
-    remain_p.resize(max_offset, 0);
-    int cur_runs = cur_total_runs;
-    double accio = 0;
-    int64_t remain_rr_nums = std::accumulate(workload.windows.begin() + start_win_idx, workload.windows.begin() + start_win_idx + max_offset, 0L, [](int acc, const SearchNode& node) {
-        return acc + node.range_lookup_nums;
-      }),
-      remain_p_nums = std::accumulate(workload.windows.begin() + start_win_idx, workload.windows.begin() + start_win_idx + max_offset, 0L, [](int acc, const SearchNode& node) {
-        return acc + node.point_lookup_nums;
-      });
-    for (int i = 0; i < max_offset; i++) {
-      auto window = workload.At(i + start_win_idx);
-      remain_rr_nums -= window.range_lookup_nums;
-      remain_p_nums -= window.point_lookup_nums;
+  int64_t buffer_size = 2L * (1<<20);
 
-      accio += window.range_lookup_nums * cur_runs + buffer_size / 4096.0 + window.point_lookup_nums * (0.01 * cur_runs + 1);
-      
-      cur_runs ++;
-      
-      acc_ios[i] = accio;
-      remain_rr[i] = remain_rr_nums;
-      remain_p[i] = remain_p_nums;
-    }
-  }
+  double wait_io = 0;
 
-  void adaptive_lookforward(const TreeState& cur_state, int start_win_idx) {
-    int lf = 50;
-    for (int i = 0; i < (int)cur_state.level_runs.size(); i++) {
-      for (int j = 0; j < (int)cur_state.level_runs[i].size(); j++) {
-        int b = std::floor(std::log2(std::max(2.0, cur_state.level_runs[i][j] * 1.0 / buffer_size)));
-        lf += 2 * b;
-      }
-    }
-    // look forward 100 window to find the proportion of write
-    int write_nums = 0, total_nums = 0, rnums = 0;
-    for (int i = start_win_idx; i < start_win_idx + 100 && i < (int)workload.windows.size(); i++) {
-      write_nums += workload.windows[i].update_nums;
-      rnums += workload.windows[i].range_lookup_nums;
-      total_nums += workload.windows[i].range_lookup_nums + workload.windows[i].point_lookup_nums + workload.windows[i].update_nums;
-    }
-    double wprop = write_nums * 1.0 / total_nums;
-    double rprop = rnums * 1.0 / total_nums;
-    // std::cout << "Upper lookforward (" << start_win_idx << "): "
-    //   << lf << ", write prop: " << prop
-    //   << ", total runs: " << cur_state.total_runs
-    //   << ", select lf: " << lf * (1 - prop)
-    //   << std::endl;
-    lf *= (1 - wprop - rprop);
-    lookforward.store(lf);
-  }
+  double parallel_factor = 1;
 
-  DynAction GetBestAction(TreeState& cur_state, int start_win_idx) {
-    mtx.lock();
-    most_recent_state = cur_state;
-    if (cur_state.total_runs > trigger_slowdown) {
-      trigger_write_stall = true;
-    } else {
-      trigger_write_stall = false;
-    }
-    mtx.unlock();
-    if (cur_state.max_level_runs == 0 || workload.windows.size() == 0) {
+  static void get_win_acc_ios(int cur_total_runs, int max_offset, std::vector<double>& acc_ios, int64_t buffer_size, int write_stall, int r, int u, int p, double wait_io, double parallel_factor);
+  static void get_reward_for_action(DynAction& action, int total_runs, const std::vector<double>& acc_ios, int c, int M, int r, int u, int p, int buffer_size, double wait_io, double parallel_factor);
+  
+  DynAction GetBestAction(TreeState& cur_state) {
+    set_most_recent_state(cur_state);
+    inc_triggered_comp(cur_state);
+    if (cur_state.max_level_runs == 0 || cur_state.level_runs.size() == 0) {
       return DynAction(); // do nothing
     }
-    if (start_win_idx >= (int)workload.windows.size()) {
-      return DynAction();
-    }
     DynAction best_action;
-    std::vector<double> acc_ios, remain_rrs, remain_ps;
-    get_win_acc_ios(cur_state.total_runs, start_win_idx, lookforward, acc_ios, remain_rrs, remain_ps);
-    // get estimate finished idx for action
+    auto mc = get_Mc();
+    auto w = get_workload();
+    auto [r, u, p] = w;
+    int M = mc.first, c = mc.second;
+    std::vector<double> acc_ios;
+    get_win_acc_ios(cur_state.total_runs, 500, acc_ios, buffer_size, c, r, u, p, wait_io, parallel_factor);
     for (auto& action : cur_state.actions) {
-      // find first idx that acc_ios[idx] >= action.compaction_size
-      int idx = 0;
-      auto it = std::lower_bound(acc_ios.begin(), acc_ios.end(), action.compaction_size);
-      idx = it - acc_ios.begin();
-      if (it == acc_ios.end() || idx >= (int)acc_ios.size() - 1) {
-        action.reward = 0;
-        continue;
-      }
-      action.estimate_finished_idx = idx;
-      double remain_rr = remain_rrs[idx], remain_p = remain_ps[idx];
-      action.reward = (remain_rr + remain_p * 0.01) * action.reward;
-      if (idx > 0) {
-        double prev_rr = remain_rrs[0] - remain_rrs[idx - 1],
-          prev_p = remain_ps[0] - remain_ps[idx - 1];
-        double cost = prev_rr * idx / 2 + prev_p * 0.01 / 2;
-        action.reward -= cost;
-      }
+      get_reward_for_action(action, cur_state.total_runs, acc_ios, c, M, r, u, p, buffer_size, wait_io, parallel_factor);
       if (action.reward > best_action.reward) {
         best_action = action;
       }
@@ -286,9 +197,60 @@ struct DynamicCompactionerV3 {
     return best_action;
   }
 
-  int trigger_slowdown = 15;
+  void set_most_recent_state(const TreeState& state) {
+    std::lock_guard<std::mutex> guard(mtx);
+    most_recent_state = state;
+  }
 
-  DynamicCompactionerV3(int64_t buffer_size, int lf=100): buffer_size(buffer_size), lookforward(lf) {}
+  TreeState get_most_recent_state() {
+    std::lock_guard<std::mutex> guard(mtx);
+    auto ret = most_recent_state;
+    return ret;
+  }
+
+  void set_workload(const std::tuple<int, int, int>& w) {
+    std::lock_guard<std::mutex> guard(mtx);
+    workload = w;
+  }
+
+  void set_Mc(const std::pair<int, int>& mc) {
+    std::lock_guard<std::mutex> guard(mtx);
+    Mc = mc;
+  }
+
+  std::tuple<int, int, int> get_workload() {
+    std::lock_guard<std::mutex> guard(mtx);
+    auto ret = workload;
+    return ret;
+  }
+
+  std::pair<int, int> get_Mc() {
+    std::lock_guard<std::mutex> guard(mtx);
+    auto ret = Mc;
+    return ret;
+  }
+
+  void inc_triggered_comp(const TreeState& state) {
+    std::lock_guard<std::mutex> guard(mtx);
+    triggered_compaction_nums ++;
+    total_run_nums += state.total_runs;
+  }
+
+  bool need_reset_Mc() {
+    std::lock_guard<std::mutex> guard(mtx);
+    if (triggered_compaction_nums < 10) {
+      return false;
+    }
+    double cur_avg_sorted_runs = 1.0 * total_run_nums / triggered_compaction_nums;
+    if (std::abs(cur_avg_sorted_runs - prev_avg_sorted_runs) / prev_avg_sorted_runs > 0.1) {
+      prev_avg_sorted_runs = cur_avg_sorted_runs;
+      triggered_compaction_nums = 0;
+      total_run_nums = 0;
+      return true;
+    }
+    return false;
+  }
+
+  DynamicCompactionerV4(int64_t bf): buffer_size(bf) {}
 };
-
-} // namespace DynCompactionV3
+} // namespace DynCompactionV4

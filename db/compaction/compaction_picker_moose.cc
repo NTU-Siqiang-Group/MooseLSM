@@ -1,5 +1,6 @@
 #include "db/compaction/compaction_picker_moose.h"
 // #include <iostream>
+#include "logging/logging.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -130,6 +131,12 @@ class MooseCompactionBuilder {
   }
 
   void SetupCompaction() {
+    if (mutable_cf_options_.comp_controller->transit.load() > 0) {
+      // compact the last level
+      start_logical_level_ = mutable_cf_options_.comp_controller->transit.load();
+      mutable_cf_options_.comp_controller->transit --;
+      ROCKS_LOG_INFO(ioptions_.info_log, "transit level: %d\n", start_logical_level_);
+    }
     uint64_t start_physical_level = std::accumulate(
       atomic_controller_->run_numbers.begin(),
       atomic_controller_->run_numbers.begin() + start_logical_level_,

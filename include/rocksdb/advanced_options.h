@@ -16,7 +16,7 @@
 #include "rocksdb/universal_compaction.h"
 // #include "rocksdb/dyncompactioner.h"
 // #include "rocksdb/dyncompactionerv2.h"
-#include "rocksdb/dyncompactionv3.h"
+#include "rocksdb/dyncompactionv4.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -43,32 +43,16 @@ struct AtomicCompactionController {
   std::vector<uint64_t> run_sizes;
 
   /* For DynamicCompaction */
-  int searchDepth;
-  uint64_t buffer_size;
-  std::atomic<int> cur_win_idx{0};
-  std::atomic<bool> need_compaction{true};
+  DynCompactionV4::DynamicCompactionerV4* compactioner = nullptr;
 
-  DynCompactionV3::DynamicCompactionerV3* compactioner = nullptr;
+  AtomicCompactionController() {}
 
-  AtomicCompactionController(uint64_t buff_size=2UL*(1<<20)):
-    buffer_size(buff_size),
-    cur_win_idx(0) {}
+  std::atomic<int> transit{0};
 
-  void InitForDynamicCompaction(int max_level) {
-  }
   void InitForMoose(const std::vector<double>& size_ratios, const std::vector<uint64_t>& run_numbers, const std::vector<uint64_t>& run_sizes) {
     this->size_ratios = size_ratios;
     this->run_numbers = run_numbers;
     this->run_sizes = run_sizes;
-  }
-  bool NeedsCompaction() {
-    return need_compaction.load();
-  }
-  void HandleCompaction() {
-    need_compaction.store(false);
-  }
-  void SetCompaction() {
-    need_compaction.store(true);
   }
 };
 
