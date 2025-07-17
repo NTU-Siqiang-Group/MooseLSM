@@ -132,13 +132,6 @@ double get_cost_for_mc(const TreeState& latest_state, int M, int c, int64_t buff
       break;
     }
   }
-  // if (M == 2 && c == 52)
-  //   std::cout << "cost: " << cost << ", ops: " << ops
-  //   << ", tree state: " << tmp_state.total_runs 
-  //   << ", remaining window cnt: " << remaining_window_cnt
-  //   << ", iter count: " << iter_cnt
-  //   << ", start state: " << latest_state.ToString()
-  //   << std::endl;
   double avg_cost = cost / ops;
   if (avg_cost <= 0) {
     std::cout << "Overflow!!!!!: " << avg_cost 
@@ -207,96 +200,12 @@ int get_reduced_runs(const DynAction& action) {
 }
 
 int main() {
-  // int64_t bf = 2L * (1<<20);
-  // double bf_io = bf * 1.0 / 4096.0;
-  // std::vector<double> comp_size{
-  //   bf_io * 10, bf_io * 100, bf_io * 200,
-  //   bf_io * 400, bf_io * 700, bf_io * 900,
-  //   bf_io * 1000, bf_io * 2000, bf_io * 3000,
-  //   bf_io * 10000, bf_io * 1e12, bf_io * 1e15,
-  // };
-  // std::vector<int> reduced_runs = {
-  //   1, 2, 3,
-  //   4, 5, 6,
-  //   7, 8, 9,
-  //   10, 11, 12,
-  // };
-  // std::vector<int> finished_idx;
-  // int c = 10, total_runs = 10;
-  // int r = 2048, u = 2048, p = 0;
-  // std::vector<double> acc_ios;
-  // std::vector<int> Ms;
-  // DynamicCompactionerV4::get_win_acc_ios(total_runs, 1000, acc_ios, bf, c, r, u, p, 0, 1);
-  // for (int i = 0; i < (int)comp_size.size(); i++) {
-  //   auto size = comp_size[i];
-  //   auto it = std::lower_bound(acc_ios.begin(), acc_ios.end(), size);
-  //   int idx = it - acc_ios.begin();
-  //   if (idx > 0) {
-  //     double inc_rr = idx * 1.0 * r / 2;
-  //     double inc_p = idx * 0.01 * p / 2;
-  //     double inc_w = 0;
-  //     if (idx + total_runs >= c) {
-  //       inc_w = std::max(0, idx + total_runs - c) * DynamicCompactionerV4::kStallCost * u;
-  //     }
-
-  //     double cost = inc_rr + inc_p + inc_w;
-  //     Ms.push_back(cost / reduced_runs[i]);
-  //   }
-  // }
-  // for (int i = 0; i < (int)Ms.size(); i++) {
-  //   std::cout << comp_size[i] / reduced_runs[i] << std::endl;
-  // }
-  // std::vector<int> cs = {10};
-  // std::vector<int> rs;
-  // for (int i = 10; i <= 90; i ++) {
-  //   double rratios = i / 100.0;
-  //   double wratios = 1 - rratios;
-  //   int r = int(2048.0 / wratios * rratios);
-  //   rs.push_back(r);
-  // }
-  // for (auto c : cs) {
-  //   std::vector<double> acc_ios;
-  //   int64_t buffer_size = 2L * (1<<20);
-  //   double size = 339968;
-  //   int total_runs = 10;
-  //   for (int i = 0; i < (int)rs.size(); i++) {
-  //     int u = 2048;
-  //     int r = rs[i];
-  //     int p = 0;
-  //     DynamicCompactionerV4::get_win_acc_ios(total_runs, 1000, acc_ios, buffer_size, c, r, u, p, 0, 1);
-  //     auto it = std::lower_bound(acc_ios.begin(), acc_ios.end(), size);
-
-  //     int idx = it - acc_ios.begin();
-  //     double factor = 1;
-  //     if (idx > 0) {
-  //       double inc_rr = idx * 1.0 * r / 2;
-  //       double inc_p = idx * 0.01 * p / 2;
-  //       double inc_w = 0;
-  //       if (idx + total_runs >= c) {
-  //         inc_w = std::max(0, idx + total_runs - c) * DynamicCompactionerV4::kStallCost * u;
-  //       }
-  //       double remaining_comp = size - inc_rr - inc_p - inc_w;
-  //       // if (idx + total_runs >= 4 * c) {
-  //       //   inc_w += std::max(0.0, remaining_comp) * factor;
-  //       // }
-  //       double cost = inc_rr + inc_p + inc_w;
-  //       // std::cout << idx << "," << std::endl;
-  //       // std::cout << std::fixed << 1.0 * r / (r + u) << "," << cost << "," << size << std::endl;
-  //       std::cout << cost << "," << std::endl;
-  //       // std::cout << r * 1.0 / (r + u) << "," << std::endl;
-  //     }
-  //   }
-  // }
   std::vector<double> rrs = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9};
   std::vector<double> wrs = {0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1};
-  // std::vector<double> rrs = {0.7};
-  // std::vector<double> wrs = {0.3};
-  // std::vector<int> run_nums = {1, 5, 10, 15, 20, 25, 30, 35, 40};
   std::vector<int> run_nums;
   for (int i = 1; i <= 40; i++) {
     run_nums.push_back(i);
   }
-  // std::vector<int> run_nums = {40};
 
   TreeState state;
   int64_t buffer_size = 2L * (1<<20);
