@@ -7,6 +7,12 @@
 #include <string>
 #include <iostream>
 
+#include <rocksdb/db.h>
+#include <rocksdb/options.h>
+#include <rocksdb/env.h>
+#include <rocksdb/status.h>
+#include <rocksdb/utilities/db_ttl.h>
+
 #include "rocksdb/listener.h"
 
 enum MonitorOpType : char {
@@ -29,70 +35,55 @@ const std::unordered_map<MonitorOpType, std::string> opTypeToStr = {
   {WINDOW_END, "WINDOW_END"},
 };
 
-class DynamicTestLogger {
- private:
-  std::chrono::high_resolution_clock::time_point start_;
-  std::mutex mtx_;
-  
-  uint64_t get_timestamp() {
-    return (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::high_resolution_clock::now() - start_).count();
-  }
- public:
-  DynamicTestLogger() {
-    start_ = std::chrono::high_resolution_clock::now();
-  }
-  
-  void Log(MonitorOpType op, const std::string& msg) {
-    std::lock_guard<std::mutex> lock(mtx_);
-    std::cout << get_timestamp() << "[" << opTypeToStr.at(op) << "]: " << msg << std::endl;
-  }
-};
-
 class DynamicTestListener : public rocksdb::EventListener {
  private:
-  DynamicTestLogger* logger_;
+  std::chrono::high_resolution_clock::time_point start_point;
+  std::vector<uint64_t> compaction_end_ts;
+  std::vector<uint64_t> compacted_bytes;
+  std::vector<uint64_t> compaction_start_winidx;
+  std::vector<uint64_t> compaction_end_winidx;
  public:
-  virtual void OnFlushCompleted(rocksdb::DB* db, const rocksdb::FlushJobInfo& flush_job_info) override {
-    logger_->Log(FLUSH, std::to_string(flush_job_info.file_number));
+  void SetStartPoint(const decltype(start_point)& ts) {
+    start_point = ts;
   }
 
   virtual void OnCompactionCompleted(rocksdb::DB* db, const rocksdb::CompactionJobInfo& ci) override {
-    std::string msg;
-    std::unordered_map<int, int> input_file_cnt;
-    std::unordered_map<int, int> output_file_cnt;
-    std::unordered_map<int, int> l0_files;
-    for (const auto& f : ci.input_file_infos) {
-      input_file_cnt[f.level]++;
-      if (f.level == 0) {
-        l0_files[f.file_number]++;
-      }
-    }
-    for (const auto& f : ci.output_file_infos) {
-      output_file_cnt[f.level]++;
-      if (l0_files.size() > 0) {
-        if (l0_files.find(f.file_number) != l0_files.end()) {
-          // skip trivial move
-          return;
-        }
-      }
-    }
-    for (auto it : input_file_cnt) {
-      msg += "input level " + std::to_string(it.first) + ": " + std::to_string(it.second) + ", ";
-    }
-    for (auto it : output_file_cnt) {
-      msg += "output level " + std::to_string(it.first) + ": " + std::to_string(it.second) + ", ";
-    }
-    msg.pop_back();
-
-    msg += "total input bytes: " + std::to_string(ci.stats.total_input_bytes) + ", " + "total output bytes: " + std::to_string(ci.stats.total_output_bytes) + ", time: " + std::to_string(ci.stats.elapsed_micros) + " us";
-
-    logger_->Log(COMPACTION_END, msg);
+    auto ts = (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::high_resolution_clock::now() - start_point).count();
+    compacted_bytes.push_back(ci.stats.total_input_bytes + ci.stats.total_output_bytes);
+    compaction_end_ts.push_back(ts);
+    auto* ctrler = db->GetOptions().comp_controller;
+    int64_t winidx = ctrler->cur_win_num.load();
+    compaction_end_winidx.push_back(winidx);
   }
 
-  virtual void OnCompactionBegin(rocksdb::DB* db, const rocksdb::CompactionJobInfo& ci) override {
-    logger_->Log(COMPACTION_START, std::to_string(ci.job_id));
+  virtual void OnCompactionBegin(rocksdb::DB* db, const rocksdb::CompactionJobInfo& ci) {
+    auto* ctrler = db->GetOptions().comp_controller;
+    int64_t winidx = ctrler->cur_win_num.load();
+    compaction_start_winidx.push_back(winidx);
   }
 
-  DynamicTestListener(DynamicTestLogger* logger) : logger_(logger) {}
+  void DisplayCompactionDetails() {
+    std::cout << "Printing Compaction Details: " << std::endl;
+    for (int i = 0; i < (int)compaction_end_ts.size(); i++) {
+      std::cout << compaction_end_ts[i] << " " << compacted_bytes[i] << std::endl;
+    }
+    std::cout << "----------------------" << std::endl;
+  }
+
+  void DisplayCompactionIdx() {
+    std::cout << "Printing Compaction WinIdx: " << std::endl;
+    for (int i = 0; i < (int)compaction_start_winidx.size(); i++) {
+      std::cout << compaction_start_winidx[i] << " ";
+      if (i < compaction_end_winidx.size()) {
+        std::cout << compaction_end_winidx[i] << " " << compacted_bytes[i];
+      }
+      std::cout << std::endl;
+    }
+    std::cout << "----------------------" << std::endl;
+  }
+
+  DynamicTestListener() {
+    start_point = std::chrono::high_resolution_clock::now();
+  }
 };

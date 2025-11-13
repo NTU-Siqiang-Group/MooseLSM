@@ -834,6 +834,7 @@ set(SOURCES
         table/block_based/partitioned_index_iterator.cc
         table/block_based/partitioned_index_reader.cc
         table/block_based/reader_common.cc
+        table/block_based/range_filter.cc
         table/block_based/uncompression_dict_reader.cc
         table/block_fetcher.cc
         table/cuckoo/cuckoo_table_builder.cc
@@ -870,7 +871,6 @@ set(SOURCES
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
-        tools/ruskey/db.cc
         trace_replay/block_cache_tracer.cc
         trace_replay/io_tracer.cc
         trace_replay/trace_record_handler.cc
@@ -986,6 +986,11 @@ list(APPEND SOURCES
   utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
   utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
   utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
+
+add_definitions(-DSUCCINCT_LIB_SUX)
+add_definitions(-DSUCCINCT_LIB_SDSL)
+include_directories(grafite/lib/sux)
+include_directories(grafite/lib/sdsl-lite/include)
 
 message(STATUS "ROCKSDB_PLUGINS: ${ROCKSDB_PLUGINS}")
 if ( ROCKSDB_PLUGINS )

@@ -662,7 +662,11 @@ enum Histograms : uint32_t {
   // system's prefetch) from the end of SST table during block based table open
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
 
-  HISTOGRAM_ENUM_MAX
+  HISTOGRAM_ENUM_MAX,
+
+  RANGE_FILTER_USE,
+
+  RANGE_FILTER_SKIP,
 };
 
 extern const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap;

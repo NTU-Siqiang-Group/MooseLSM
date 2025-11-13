@@ -123,6 +123,7 @@ class BlockBasedTable : public TableReader {
                            BlockCacheLookupContext* lookup_context,
                            bool* filter_checked) const;
 
+  bool RangeMayExist(const Slice& internal_key, const Slice* upper_key, BlockCacheLookupContext* lookup_context, const ReadOptions&);
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).

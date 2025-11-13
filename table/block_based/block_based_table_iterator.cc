@@ -58,6 +58,13 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   is_at_first_key_from_index_ = false;
   seek_stat_state_ = kNone;
   bool filter_checked = false;
+  // if (target) {
+  //     // RecordTick(table_->get_rep()->ioptions.statistics, RANGE_FILTER_USE);
+  //   if (!CheckRangeMayExist(*target)) {
+  //     ResetDataIter();
+  //     return;
+  //   }
+  // }
   if (target &&
       !CheckPrefixMayMatch(*target, IterDirection::kForward, &filter_checked)) {
     ResetDataIter();

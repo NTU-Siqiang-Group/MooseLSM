@@ -27,6 +27,10 @@
 #define TOSTRING(x) STRINGIFY(x)
 #endif
 
+#ifndef TOSTRING
+#define TOSTRING(x) STRINGIFY(x)
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 enum TickersInternal : uint32_t {

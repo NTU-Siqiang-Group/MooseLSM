@@ -49,6 +49,9 @@ struct AtomicCompactionController {
 
   std::atomic<int> transit{0};
 
+  std::atomic<int> cur_win_num{0};
+
+  std::atomic<int> latest_run_num{0};
   void InitForMoose(const std::vector<double>& size_ratios, const std::vector<uint64_t>& run_numbers, const std::vector<uint64_t>& run_sizes) {
     this->size_ratios = size_ratios;
     this->run_numbers = run_numbers;

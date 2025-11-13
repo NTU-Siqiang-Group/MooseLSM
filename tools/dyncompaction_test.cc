@@ -82,9 +82,9 @@ double get_cost_for_mc(const TreeState& latest_state, int M, int c, int64_t buff
   for (int i = 0; i < mc_search_len; i++) {
     iter_cnt ++;
     tmp_state.actions.clear();
-    auto start = std::chrono::high_resolution_clock::now();
+    // auto start = std::chrono::high_resolution_clock::now();
     tmp_state.EnumerateActions();
-    auto end = std::chrono::high_resolution_clock::now();
+    // auto end = std::chrono::high_resolution_clock::now();
     // std::cout << "enum time: " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() << "us" << std::endl;
     auto action = get_best_action_with_forward(tmp_state, M, c, buffer_size, r, u, p, wait_io, parallel_factor);
     if (action.start_level < 0) {
@@ -132,6 +132,7 @@ double get_cost_for_mc(const TreeState& latest_state, int M, int c, int64_t buff
       break;
     }
   }
+  // std::cout << "M: " << M << ", c: " << c << ", cost: " << cost << ", ops: " << ops << std::endl;
   double avg_cost = cost / ops;
   if (avg_cost <= 0) {
     std::cout << "Overflow!!!!!: " << avg_cost 
@@ -151,7 +152,7 @@ std::pair<int, int> FindBestMC(const TreeState& latest_state, int64_t buffer_siz
   int upper = std::max(4 * 2, latest_state.total_runs * 2);
   std::mutex mtx;
   std::vector<std::tuple<int, int, double>> results;
-  for (int i = 4; i <= upper; i += 4) {
+  for (int i = 4; i <= upper; i += 1) {
     c_candidates.push_back(i);
   }
   c_candidates.push_back(1000000);
@@ -214,24 +215,25 @@ int main() {
   state.level_runs[2].push_back(20UL * (1<<30));
   state.level_runs[2].push_back(10UL * (1<<30));
   int64_t run_size = buffer_size * 20;
-  for (int i = 0; i < (int)rrs.size(); i++) {
-    for (int j = 0; j < run_nums.size(); j++) {
+  // for (int i = 0; i < (int)rrs.size(); i++) {
+  //   for (int j = 0; j < run_nums.size(); j++) {
       int u = 2048, p = 0;
-      int r = int(2048.0 / wrs[i] * rrs[i]);
+      int r = 2048;
       auto tmp_state = state;
-      for (int k = 0; k < run_nums[j]; k++) {
-        tmp_state.level_runs[0].push_back(run_size);
-      }
-      tmp_state.total_runs = run_nums[j] + 3;
-      tmp_state.max_level_runs = run_nums[j];
+      // for (int k = 0; k < run_nums[j]; k++) {
+      //   tmp_state.level_runs[0].push_back(run_size);
+      // }
+      tmp_state.total_runs = 3;
+      tmp_state.max_level_runs = 2;
       auto [M, c] = FindBestMC(tmp_state, buffer_size, r, u, p, 0, 400, 10000, 1);
-      std::cout << "r: " << r << ", u: " << u << ", p: " << p
-        << ", M: " << M << ", c: " << c
-        << ", rratio: " << rrs[i] << ", wratio: " << wrs[i]
-        << ", run_nums: " << run_nums[j] 
-        << std::endl;
-      std::cout << "--------------------------------" << std::endl;
-    }
-  }
+      double estimate_cost = get_cost_for_mc(tmp_state, M, c, buffer_size, r, u ,p, 0, 10, 10000, 1);
+      // std::cout << "r: " << r << ", u: " << u << ", p: " << p
+      //   << ", M: " << M << ", c: " << c
+      //   << ", rratio: " << r << ", wratio: " << u
+      //   << ", run_nums: " << run_nums[j] 
+      //   << std::endl;
+      // std::cout << "--------------------------------" << std::endl;
+  //   }
+  // }
   return 0;
 }

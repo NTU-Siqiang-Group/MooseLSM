@@ -145,7 +145,13 @@ struct TreeState {
     }
     int rw_ratio = 2;
     for (auto& action : actions) {
-      action.compaction_size *= rw_ratio / 4096.0;
+      // if (action.removed_files[3].front() == 0) {
+      //   // not include the biggest file
+      //   action.compaction_size = action.compaction_size + std::min((double)1*(1<<30), (double)action.compaction_size);
+      //   action.compaction_size /= 4096.0;
+      // } else {
+        action.compaction_size *= rw_ratio / 4096.0;
+      // }
     }
   }
 };
@@ -157,6 +163,7 @@ struct DynamicCompactionerV4 {
   int total_run_nums = 0;
   double prev_avg_sorted_runs = 1;
  public:
+  double state_change_threshold = 0.1;
   constexpr static double kStoppedCost = 1e10;
   constexpr static double kStallCost = 4;
   // [r,u,p]
@@ -172,10 +179,13 @@ struct DynamicCompactionerV4 {
 
   double parallel_factor = 1;
 
+  std::atomic<int> latest_run_num{0};
+
   static void get_win_acc_ios(int cur_total_runs, int max_offset, std::vector<double>& acc_ios, int64_t buffer_size, int write_stall, int r, int u, int p, double wait_io, double parallel_factor);
   static void get_reward_for_action(DynAction& action, int total_runs, const std::vector<double>& acc_ios, int c, int M, int r, int u, int p, int buffer_size, double wait_io, double parallel_factor);
   
   DynAction GetBestAction(TreeState& cur_state) {
+    latest_run_num.store(cur_state.total_runs);
     set_most_recent_state(cur_state);
     inc_triggered_comp(cur_state);
     if (cur_state.max_level_runs == 0 || cur_state.level_runs.size() == 0) {
@@ -242,7 +252,7 @@ struct DynamicCompactionerV4 {
       return false;
     }
     double cur_avg_sorted_runs = 1.0 * total_run_nums / triggered_compaction_nums;
-    if (std::abs(cur_avg_sorted_runs - prev_avg_sorted_runs) / prev_avg_sorted_runs > 0.1) {
+    if (std::abs(cur_avg_sorted_runs - prev_avg_sorted_runs) / prev_avg_sorted_runs > state_change_threshold) {
       prev_avg_sorted_runs = cur_avg_sorted_runs;
       triggered_compaction_nums = 0;
       total_run_nums = 0;

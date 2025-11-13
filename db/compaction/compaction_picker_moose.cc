@@ -80,6 +80,7 @@ class MooseCompactionBuilder {
   
   bool NeedCompactionImpl() {
     // compute compaction score
+    int total_run = 0;
     double score = 0.0;
     int start_logical_level = 0;
     // 1. check the compaction in L0
@@ -94,6 +95,7 @@ class MooseCompactionBuilder {
     if (total_run_at_l0 > atomic_controller_->size_ratios[0]) {
       score = (double)files_at_l0.size() / atomic_controller_->size_ratios[0];
     }
+    total_run += total_run_at_l0;
     // 2. check other levels
     int prev_run_number = 1;
     // do not check the last level
@@ -114,6 +116,7 @@ class MooseCompactionBuilder {
           cur_level_size += file->fd.GetFileSize();
         }
       }
+      total_run += cur_level_run_number;
       double cur_level_score = (double)cur_level_size / level_capacity;
       if (atomic_controller_->run_numbers[i] == atomic_controller_->size_ratios[i]) {
         cur_level_score = std::max(cur_level_score, (double)cur_level_run_number / atomic_controller_->run_numbers[i]);
@@ -126,6 +129,7 @@ class MooseCompactionBuilder {
       prev_run_number += atomic_controller_->run_numbers[i];
     }
     start_logical_level_ = start_logical_level;
+    atomic_controller_->latest_run_num.store(total_run);
     // std::cout << "Compaction required: " << score << ", start from " << start_logical_level_ << std::endl;
     return score >= 1.0;
   }

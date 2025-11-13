@@ -16,6 +16,8 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/table.h"
 
+#include "../grafite/include/grafite/grafite.hpp"
+
 namespace ROCKSDB_NAMESPACE {
 
 // A class that takes a bunch of keys, then generates filter
@@ -94,6 +96,10 @@ class FilterBitsReader {
     for (int i = 0; i < num_keys; ++i) {
       may_match[i] = MayMatch(*keys[i]);
     }
+  }
+
+  virtual bool RangeQuery(const Slice& left, const Slice& right) {
+    return true;
   }
 };
 
@@ -296,6 +302,75 @@ class RibbonFilterPolicy : public BloomLikeFilterPolicy {
  private:
   std::atomic<int> bloom_before_level_;
 };
+
+struct DynamicRangeFilterBitsBuilder : public FilterBitsBuilder {
+  std::vector<uint64_t> key_buffer;
+  double bpk;
+
+  DynamicRangeFilterBitsBuilder(double b): bpk(b) {}
+  virtual void AddKey(const Slice& key) override;
+
+  size_t EstimateEntriesAdded() override {
+    return key_buffer.size();
+  }
+
+  Slice Finish(std::unique_ptr<const char[]>* buf);
+
+  virtual size_t ApproximateNumEntries(size_t bytes) override {
+    return key_buffer.size();
+  }
+
+  virtual ~DynamicRangeFilterBitsBuilder() {}
+};
+
+struct DynamicRangeFilterBitsReader : public FilterBitsReader {
+  grafite::filter<grafite::ef_sux_vector, 2> filter;
+  
+  DynamicRangeFilterBitsReader(const Slice& contents);
+
+  virtual bool MayMatch(const Slice& entry) override {
+    return true;
+  }
+
+  // Check if an array of entries match the bits in filter
+  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) {
+    for (int i = 0; i < num_keys; ++i) {
+      may_match[i] = MayMatch(*keys[i]);
+    }
+  }
+
+  virtual bool RangeQuery(const Slice& left, const Slice& right) {
+    uint64_t l = std::stoull(left.ToString());
+    uint64_t r = std::stoull(right.ToString());
+    bool result = filter.query(l, r);
+    return result;
+  }
+};
+
+
+struct DynamicRangeFilter : public FilterPolicy {
+  const FilterPolicy* bloom_filter = nullptr;
+  double bpk;
+  const char* Name() const {
+    return "DynamicFilter";
+  }
+
+  const char* CompatibilityName() const {
+    return Name();
+  }
+
+  FilterBitsBuilder* GetBuilderWithContext(const FilterBuildingContext&) const {
+    return new DynamicRangeFilterBitsBuilder(bpk);
+  }
+
+  FilterBitsReader* GetFilterBitsReader(const Slice& slice) const {
+    return new DynamicRangeFilterBitsReader(slice);
+  }
+
+  explicit DynamicRangeFilter(double rbpk, double bloom_bpk):
+    bloom_filter(NewBloomFilterPolicy(bloom_bpk)), bpk(rbpk) {}
+};
+
 
 // For testing only, but always constructable with internal names
 namespace test {

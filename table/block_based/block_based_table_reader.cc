@@ -2033,6 +2033,24 @@ bool BlockBasedTable::PrefixRangeMayMatch(
   return may_match;
 }
 
+bool BlockBasedTable::RangeMayExist(const Slice& internal_key, const Slice* upper_key,
+                                    BlockCacheLookupContext* lookup_context, const ReadOptions& ropt) {
+  FilterBlockReader* const filter = rep_->filter.get();
+  assert(filter != nullptr);
+  bool filter_checked = false;
+  auto user_key = ExtractUserKey(internal_key);
+  const Slice* const const_ikey_ptr = &internal_key;
+
+  // Calls FullFilterBlockReader::RangeMayExist
+  bool out = filter->RangeMayExist(upper_key, user_key, nullptr, nullptr, const_ikey_ptr, 
+                                    &filter_checked, true, lookup_context, ropt);
+  if (filter_checked) {
+    RecordTick(rep_->ioptions.stats, RANGE_FILTER_USE);
+  }
+  assert(filter_checked);
+  return out;
+}
+
 bool BlockBasedTable::PrefixExtractorChanged(
     const SliceTransform* prefix_extractor) const {
   if (prefix_extractor == nullptr) {

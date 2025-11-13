@@ -393,8 +393,18 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
     return true;
   }
-
-  // *** BEGIN APIs relevant to auto tuning of readahead_size ***
+  
+  bool CheckRangeMayExist(const Slice& ikey) {
+    assert(need_upper_bound_check_);
+    if (!(((BlockBasedTable*)table_)->RangeMayExist(ikey, 
+                                                    read_options_.iterate_upper_bound, 
+                                                    &lookup_context_, read_options_))) {
+      ResetDataIter();
+      RecordTick(table_->GetStatistics(), RANGE_FILTER_SKIP);
+      return false;
+    }
+    return true;
+  }  // *** BEGIN APIs relevant to auto tuning of readahead_size ***
 
   // This API is called to lookup the data blocks ahead in the cache to tune
   // the start and end offsets passed.

@@ -168,6 +168,35 @@ bool FullFilterBlockReader::PrefixMayMatch(
   return MayMatch(prefix, get_context, lookup_context, read_options);
 }
 
+bool FullFilterBlockReader::RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key_without_ts,
+    const SliceTransform* prefix_extractor, const Comparator* comparator,
+    const Slice* const const_ikey_ptr, bool* filter_checked,
+    bool need_upper_bound_check, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) {
+  
+  if (strcmp(table()->get_rep()->filter_policy->Name(), "DynamicFilter") == 0) {
+    CachableEntry<ParsedFullFilterBlock> filter_block;
+    const Status s = GetOrReadFilterBlock(/* get_context */ nullptr,
+                                          lookup_context, &filter_block, read_options);
+    if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
+      return true;
+    }
+    assert(filter_block.GetValue());
+
+    FilterBitsReader* const filter_bits_reader =
+      filter_block.GetValue()->filter_bits_reader();
+    
+    if (filter_bits_reader) {
+      *filter_checked = true;
+      return filter_bits_reader->RangeQuery(user_key_without_ts, *iterate_upper_bound);
+    }
+
+    return true;
+  }
+  return true;
+}
+
 bool FullFilterBlockReader::MayMatch(const Slice& entry,
                                      GetContext* get_context,
                                      BlockCacheLookupContext* lookup_context,

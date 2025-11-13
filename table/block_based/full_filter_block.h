@@ -115,6 +115,12 @@ class FullFilterBlockReader
   void KeysMayMatch(MultiGetRange* range,
                     BlockCacheLookupContext* lookup_context,
                     const ReadOptions& read_options) override;
+  
+  bool RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key_without_ts,
+    const SliceTransform* prefix_extractor, const Comparator* comparator,
+    const Slice* const const_ikey_ptr, bool* filter_checked,
+    bool need_upper_bound_check, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) override;
   // Used in partitioned filter code
   void KeysMayMatch2(MultiGetRange* range,
                      const SliceTransform* /*prefix_extractor*/,

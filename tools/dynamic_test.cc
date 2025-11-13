@@ -22,6 +22,11 @@ DEFINE_string(workload_file, "", "workload file");
 DEFINE_int32(sleep_time, 0, "sleep time");
 DEFINE_int32(mc_search_len, 400, "mc search length");
 DEFINE_int32(parallel, 1, "parallel factor");
+DEFINE_int32(cache_size, 32, "cache size in MB");
+DEFINE_double(change_threshold, 0.1, "changing threshold of dynamic");
+DEFINE_bool(use_continuous, false, "use continuous workload");
+DEFINE_bool(use_rangefilter, false, "use range filter");
+DEFINE_int32(T, 10, "Leveling size ratio");
 
 template <typename T>
 std::vector<T> ParseStringToNumbers(const std::string& src) {
@@ -56,6 +61,11 @@ rocksdb::Options GetBasedOptions() {
   // get block based table options
   auto table_options = opt.table_factory->GetOptions<rocksdb::BlockBasedTableOptions>();
   table_options->filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+  if (FLAGS_use_rangefilter) {
+    table_options->filter_policy.reset(rocksdb::NewDynamicRangeFilter(14, 10));
+  }
+  auto cache = rocksdb::NewLRUCache(FLAGS_cache_size * (1UL<<20));
+  table_options->block_cache = cache;
 
   return opt;
 }
@@ -90,18 +100,20 @@ rocksdb::Options GetDynamicOptions() {
   opt.level0_slowdown_writes_trigger = 0x7fffffff;
   // opt.level0_slowdown_writes_trigger = 30;
   opt.comp_controller->compactioner = new DynCompactionV4::DynamicCompactionerV4(FLAGS_buffer_size);
+  opt.comp_controller->compactioner->state_change_threshold = FLAGS_change_threshold;
 
   return opt;
 }
 
 rocksdb::Options GetLevelingOptions() {
   rocksdb::Options opt = GetBasedOptions();
-  opt.num_levels = 7;
+  opt.num_levels = 10;
   opt.target_file_size_base = 64L * (1<<20);
-  opt.target_file_size_multiplier = 10;
+  opt.target_file_size_multiplier = FLAGS_T;
+  opt.max_bytes_for_level_multiplier = FLAGS_T;
   opt.max_bytes_for_level_base = FLAGS_buffer_size * opt.max_bytes_for_level_multiplier; // T * F
   opt.level_compaction_dynamic_level_bytes = false;
-
+  std::cout << "Using leveling with T=" << opt.max_bytes_for_level_multiplier << std::endl;
   return opt;
 }
 
@@ -111,7 +123,6 @@ int main(int argc, char** argv) {
   rocksdb::DB* db;
   rocksdb::Options opt;
 
-  std::shared_ptr<DynamicTestLogger> logger = std::make_shared<DynamicTestLogger>();
   if (FLAGS_compaction_style == "dynamic") {
     opt = GetDynamicOptions();
   } else if (FLAGS_compaction_style == "leveling") {
@@ -122,10 +133,12 @@ int main(int argc, char** argv) {
     std::cout << "unknown compaction style: " << FLAGS_compaction_style << std::endl;
     return 0;
   }
-  // opt.listeners.emplace_back(new DynamicTestListener(logger.get())); 
-  WorkloadManager mng(opt.comp_controller, logger.get(), FLAGS_key_size, 
+  auto* listener = new DynamicTestListener();
+  opt.listeners.emplace_back(listener);
+  // opt.listeners.emplace_back(new DynamicTestListener(logger.get()));
+  WorkloadManager mng(opt.comp_controller, listener, FLAGS_key_size, 
       FLAGS_value_size, FLAGS_range_lookup_len, FLAGS_buffer_size,
-      FLAGS_sleep_time, FLAGS_mc_search_len, FLAGS_parallel);
+      FLAGS_sleep_time, FLAGS_mc_search_len, FLAGS_parallel, FLAGS_use_continuous);
   
   mng.InitWorkloadFromFile(FLAGS_workload_file, false);
   std::cout << "Finish init workload" << std::endl;
@@ -148,6 +161,11 @@ int main(int argc, char** argv) {
       std::cout << "point lookup time: " << mng.record_times_[i] << std::endl;
     }
   }
+  for (int i = 0; i < (int)mng.window_end_ts_.size(); i++) {
+    std::cout << "Window End Ts: # " << i << " " << mng.window_end_ts_[i] << std::endl;
+  }
+  listener->DisplayCompactionDetails();
+  listener->DisplayCompactionIdx();
   std::this_thread::sleep_for(std::chrono::seconds(60));
   std::cout << "Total entry: " << mng.get_db_size(db) << std::endl;
   std::cout << "stats: " << opt.statistics->ToString() << std::endl;

@@ -357,6 +357,7 @@ class DynamicCompactionBuilder {
     // auto best_action = compactioner->GetBestActionV2(state, win_idx);
     ROCKS_LOG_INFO(ioptions_.info_log, "dynamic_state: \n%s", state.ToString().c_str());
     ROCKS_LOG_INFO(ioptions_.info_log, "best_action: %s", best_action.ToString().c_str());
+    ROCKS_LOG_INFO(ioptions_.info_log, "est finish win cnt: %d\n", best_action.estimate_finished_idx);
     // auto bv2 = compactioner->GetBestActionV2(copy_state, win_idx);
     // ROCKS_LOG_INFO(ioptions_.info_log, "V2 state:\n %s", copy_state.ToString().c_str());
     // ROCKS_LOG_INFO(ioptions_.info_log, "V2 best_action: %s", bv2.ToString().c_str());

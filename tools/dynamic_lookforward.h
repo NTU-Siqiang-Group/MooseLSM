@@ -72,6 +72,7 @@ double get_cost_for_mc(const TreeState& latest_state, int M, int c, int64_t buff
     int r, int u, int p, double wait_io, int mc_search_len, int remaining_window_cnt, double parallel_factor) {
   double cost = 0;
   int64_t ops = 0;
+  // std::cout << r << ", " << u << ", " << p << ", " << remaining_window_cnt << std::endl;
   auto tmp_state = latest_state;
   double factor = parallel_factor;
   if (factor > 1) {
@@ -90,7 +91,7 @@ double get_cost_for_mc(const TreeState& latest_state, int M, int c, int64_t buff
 
     int elasped_window_cnt = action.estimate_finished_idx + 1;
 
-    if (remaining_window_cnt < remaining_window_cnt) {
+    if (elasped_window_cnt < remaining_window_cnt) {
       elasped_window_cnt = remaining_window_cnt;
     }
 
