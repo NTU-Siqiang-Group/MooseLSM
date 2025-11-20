@@ -14,7 +14,7 @@
 #include <cmath>
 #include <mutex>
 
-namespace DynCompactionV4 {
+namespace DynCompaction {
 struct DynAction {
   std::vector<std::vector<int>> removed_files = decltype(removed_files)(20, std::vector<int>(100, 0));
   int start_level = -1;
@@ -156,7 +156,7 @@ struct TreeState {
   }
 };
 
-struct DynamicCompactionerV4 {
+struct DynamicCompactioner {
  private:
   std::mutex mtx;
   int triggered_compaction_nums = 0;
@@ -164,8 +164,8 @@ struct DynamicCompactionerV4 {
   double prev_avg_sorted_runs = 1;
  public:
   double state_change_threshold = 0.1;
-  constexpr static double kStoppedCost = 1e10;
-  constexpr static double kStallCost = 4;
+  static double kStoppedCost;
+  static double kStallCost;
   // [r,u,p]
   std::tuple<int, int, int> workload{0, 2048, 0};
 
@@ -261,6 +261,6 @@ struct DynamicCompactionerV4 {
     return false;
   }
 
-  DynamicCompactionerV4(int64_t bf): buffer_size(bf) {}
+  DynamicCompactioner(int64_t bf): buffer_size(bf) {}
 };
 } // namespace DynCompactionV4

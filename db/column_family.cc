@@ -22,7 +22,6 @@
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
 #include "db/compaction/compaction_picker_dynamic.h"
-#include "db/compaction/compaction_picker_moose.h"
 #include "db/compaction/compaction_picker_universal.h"
 #include "db/db_impl/db_impl.h"
 #include "db/internal_stats.h"
@@ -607,10 +606,6 @@ ColumnFamilyData::ColumnFamilyData(
       compaction_picker_.reset(
         new DynamicCompactionPicker(ioptions_, &internal_comparator_)
       );
-    } else if (ioptions_.compaction_style == kCompactionStyleMoose) {
-      compaction_picker_.reset(
-        new MooseCompactionPicker(ioptions_, &internal_comparator_)
-      );
     } else if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
           new UniversalCompactionPicker(ioptions_, &internal_comparator_));
@@ -946,7 +941,7 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
     uint64_t num_compaction_needed_bytes,
     const MutableCFOptions& mutable_cf_options,
     const ImmutableCFOptions& immutable_cf_options) {
-  if (mutable_cf_options.comp_controller->compactioner != nullptr) {
+  if (mutable_cf_options.comp_controller && mutable_cf_options.comp_controller->compactioner != nullptr) {
     return DynamicWriteStallCause(num_l0_files, mutable_cf_options);
   }
   if (num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {

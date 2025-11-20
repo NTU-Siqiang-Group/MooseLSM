@@ -330,9 +330,7 @@ struct MutableCFOptions {
   // Per-level target file size.
   std::vector<uint64_t> max_file_size;
 
-  AtomicCompactionController* comp_controller;
-
-  CompactionOptionsFlex compaction_options_flex;
+  AdaptiveCompactionController* comp_controller;
 };
 
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2);

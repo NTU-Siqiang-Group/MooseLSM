@@ -43,7 +43,7 @@ class DynamicCompactionBuilder {
   //   }
   // }
 
-  void GetCurrentStateForCompactedAction(DynCompactionV4::TreeState& state) {
+  void GetCurrentStateForCompactedAction(DynCompaction::TreeState& state) {
     state.level_runs.resize(ioptions_.num_levels);
     int max_level_runs = 0;
     for (int i = 0; i < ioptions_.num_levels; i++) {
@@ -346,10 +346,15 @@ class DynamicCompactionBuilder {
   // }
 
   Compaction* PickCompactionActionV3() {
-    auto compactioner = mutable_cf_options_.comp_controller->compactioner;
     // 1. get the current state
-    DynCompactionV4::TreeState state;
+    DynCompaction::TreeState state;
     GetCurrentStateForCompactedAction(state);
+    auto compactioner = mutable_cf_options_.comp_controller->compactioner;
+    if (!mutable_cf_options_.comp_controller->ready_to_run.load()) {
+      compactioner->set_most_recent_state(state);
+      compactioner->latest_run_num.store(state.total_runs);
+      return nullptr;
+    }
     // state.InitCompactedActions();
     state.EnumerateActions();
     // auto copy_state = state;

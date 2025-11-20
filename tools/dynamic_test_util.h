@@ -46,7 +46,7 @@ struct WorkloadManager {
   int value_size_;
   int range_lookup_len_;
   uint64_t buffer_size_;
-  rocksdb::AtomicCompactionController* compaction_controller_;
+  rocksdb::AdaptiveCompactionController* compaction_controller_;
   DynamicTestListener* test_monitor_;
   std::vector<int> record_times_;
   std::vector<OpType> record_ops_;
@@ -579,7 +579,7 @@ struct WorkloadManager {
   }
 
   WorkloadManager(
-    rocksdb::AtomicCompactionController* comp,
+    rocksdb::AdaptiveCompactionController* comp,
     DynamicTestListener* listener, 
     int key_size = 24,
     int value_size = 1000,

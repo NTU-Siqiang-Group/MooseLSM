@@ -14,9 +14,10 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
-// #include "rocksdb/dyncompactioner.h"
-// #include "rocksdb/dyncompactionerv2.h"
+#include "rocksdb/dynamic_lookforward.h"
 #include "rocksdb/dyncompactionv4.h"
+
+#include <thread>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -34,28 +35,130 @@ struct CompactionOptionsFlex {
   bool use_monkey_layout = false;
 };
 
-struct AtomicCompactionController {
-  /*
-    For Moose only
-  */
-  std::vector<double> size_ratios;
-  std::vector<uint64_t> run_numbers;
-  std::vector<uint64_t> run_sizes;
-
+struct AdaptiveCompactionController {
   /* For DynamicCompaction */
-  DynCompactionV4::DynamicCompactionerV4* compactioner = nullptr;
+  DynCompaction::DynamicCompactioner* compactioner = nullptr;
 
-  AtomicCompactionController() {}
+  AdaptiveCompactionController(uint64_t buffsize=2 * (1<<20), int simul_iters=400):
+   compactioner(new DynCompaction::DynamicCompactioner(buffsize)),
+   simulation_iterations(simul_iters) {}
+  
+  AdaptiveCompactionController(uint64_t buffsize, int simiters, double range_ratio, double write_ratio, double point_ratio, 
+    int parallel_factor, int remain_win, uint32_t entry_size):
+    compactioner(new DynCompaction::DynamicCompactioner(buffsize)),
+    simulation_iterations(simiters) {
+    
+    set_workload(range_ratio, write_ratio, point_ratio, parallel_factor, remain_win, buffsize, entry_size);
+    auto t = std::thread([&] {
+      start_tuning_agent();
+    });
+    t.detach();
+  }
+  
+  ~AdaptiveCompactionController() {
+    stop_agent();
+    delete compactioner;
+  }
+  int simulation_iterations;
 
   std::atomic<int> transit{0};
 
   std::atomic<int> cur_win_num{0};
 
   std::atomic<int> latest_run_num{0};
-  void InitForMoose(const std::vector<double>& size_ratios, const std::vector<uint64_t>& run_numbers, const std::vector<uint64_t>& run_sizes) {
-    this->size_ratios = size_ratios;
-    this->run_numbers = run_numbers;
-    this->run_sizes = run_sizes;
+
+  int remaining_windows = 1000;
+
+  std::atomic<bool> run_agent{true};
+
+  std::atomic<bool> ready_to_run{false};
+
+  void set_buffer_size(uint64_t buffsize) {
+    compactioner->buffer_size = buffsize;
+  }
+
+  void set_wait_io(double wait_per_op) {
+    compactioner->wait_io = wait_per_op;
+  }
+
+  void stop_agent() {
+    run_agent.store(false);
+  }
+
+  void set_workload(double range_ratio, double write_ratio, double point_ratio, 
+    int parallel_factor, int remain_win,
+    uint64_t buffsize, uint32_t entry_size) {
+    // transform to count-window-based workload representation
+    set_buffer_size(buffsize);
+    compactioner->parallel_factor = parallel_factor;
+    double uops = buffsize / entry_size;
+    double total_ops_in_window = uops / write_ratio;
+    double pops = total_ops_in_window * point_ratio;
+    double rops = total_ops_in_window * range_ratio;
+    compactioner->set_workload({
+      (int)rops,
+      (int)uops,
+      (int)pops
+    });
+    remaining_windows = remain_win;
+  }
+
+  void find_first_mc_when_ready() {
+    // Find best MC first
+    auto start = std::chrono::steady_clock::now();
+    auto [r, u, p] = compactioner->get_workload();
+    auto [m, c] = DynamicLookForward::FindBestMC(
+      compactioner->get_most_recent_state(),
+      compactioner->buffer_size,
+      r, u, p,
+      compactioner->wait_io,
+      simulation_iterations,
+      remaining_windows,
+      compactioner->parallel_factor
+    );
+    auto end = std::chrono::steady_clock::now();
+    auto cost = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    if (m == 0 || c == 0) {
+      // shouldn't have happened
+      std::cerr << "[ERROR] invalid MC: " << remaining_windows << std::endl;
+    } else {
+      compactioner->set_Mc({m, c});
+    }
+    std::cout << "Find first mc use time: " << cost << std::endl;
+    ready_to_run.store(true);
+  }
+
+  void start_tuning_agent() {
+    // run in a separate thread
+    using namespace std::chrono_literals;
+    // pool->enqueue([&] {
+    while (run_agent.load()) {
+      if (ready_to_run.load() && compactioner->need_reset_Mc()) {
+        auto [r, u, p] = compactioner->get_workload();
+        auto start = std::chrono::steady_clock::now();
+        auto [m, c] = DynamicLookForward::FindBestMC(
+          compactioner->get_most_recent_state(),
+          compactioner->buffer_size,
+          r, u, p,
+          compactioner->wait_io,
+          simulation_iterations,
+          remaining_windows,
+          compactioner->parallel_factor
+        );
+        if (m == 0 || c == 0) {
+          // shouldn't have happened
+          std::cerr << "[ERROR] invalid MC: " << remaining_windows << std::endl;
+        } else {
+          compactioner->set_Mc({m, c});
+        }
+        auto end = std::chrono::steady_clock::now();
+        auto cost = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        std::cout << "Find MC use time: " << cost << std::endl;
+      }
+      // sleep for 5 seconds
+      std::this_thread::sleep_for(5s);
+    }
+    // });
   }
 };
 
@@ -1130,7 +1233,7 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t bottommost_file_compaction_delay = 0;
 
-  AtomicCompactionController* comp_controller = nullptr;
+  AdaptiveCompactionController* comp_controller = nullptr;
 
   CompactionOptionsFlex compaction_options_flex;
   // Create ColumnFamilyOptions with default values for all fields

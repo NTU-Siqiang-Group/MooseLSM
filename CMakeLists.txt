@@ -46,7 +46,6 @@ project(rocksdb
 
 find_package(OpenMP REQUIRED)
 list(APPEND THIRDPARTY_LIBS OpenMP::OpenMP_CXX)
-
 if(APPLE)
   # On macOS Cmake, when cross-compiling, sometimes CMAKE_SYSTEM_PROCESSOR wrongfully stays
   # the same as CMAKE_HOST_SYSTEM_PROCESSOR regardless the target CPU.
@@ -682,7 +681,6 @@ set(SOURCES
         db/compaction/compaction_picker.cc
         db/compaction/compaction_job.cc
         db/compaction/compaction_picker_dynamic.cc
-        db/compaction/compaction_picker_moose.cc
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
         db/compaction/compaction_picker_universal.cc

@@ -11,10 +11,10 @@ endforeach()
 
 if(WITH_TOOLS)
   set(TOOLS
+    arce_bench.cc
     db_sanity_test.cc
     write_stress.cc
     dynamic_test.cc
-    dyncompaction_test.cc
     db_repl_stress.cc
     dump/rocksdb_dump.cc
     dump/rocksdb_undump.cc)
@@ -22,7 +22,8 @@ if(WITH_TOOLS)
     get_filename_component(exename ${src} NAME_WE)
     add_executable(${exename}${ARTIFACT_SUFFIX}
       ${src})
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
+    # target_include_directories(${exename}${ARTIFACT_SUFFIX} PRIVATE /usr/include)
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_LIB} ${THIRDPARTY_LIBS} tbb)
     list(APPEND tool_deps ${exename})
   endforeach()
 

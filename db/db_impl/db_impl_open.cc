@@ -1833,6 +1833,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     }
     delete handles[0];
   }
+  options.comp_controller->find_first_mc_when_ready();
   return s;
 }
 

@@ -102,3 +102,4 @@ third-party/folly/
 .cache
 *.sublime-*
 workspace/*
+*.log
