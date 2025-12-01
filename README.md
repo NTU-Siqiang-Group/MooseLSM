@@ -13,6 +13,25 @@ cd build && cmake .. -CMAKE_BUILD_TYPE=Release
 sudo make install -j
 ```
 
+## Enable ArceKV
+```c++
+rocksdb::Options GetDynamicOptions() {
+  rocksdb::Options opt;                     // please ensure the bloom filter is enabled with 10 bpk
+  opt.compaction_style = rocksdb::kCompactionStyleDynamic;
+  opt.num_levels = 4;                       // specify a number of level
+  
+  opt.comp_controller = new rocksdb::AdaptiveCompactionController(
+    FLAGS_buffer_size,                      // memtable size
+    FLAGS_simulation_iter,                  // simulation iterations
+    0, FLAGS_write_ratio, FLAGS_read_ratio, // workload ratios: range lookup, update, point lookup
+    FLAGS_parallel,                         // paralization factor, 1 for single threading query
+    1000,                                   // remaining count window of the current workload
+    FLAGS_key_size + FLAGS_value_size       // entry size
+  );
+  return opt;
+}
+```
+
 ## Benchmark
 This implementation optimizes the latency for in-memory key-value service (e.g., TikTok recommendation system). To run the benchmark, we mount a `tmpfs` and store the data in it:
 
