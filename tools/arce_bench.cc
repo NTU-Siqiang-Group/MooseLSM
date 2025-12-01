@@ -14,6 +14,7 @@
 #include <fstream>
 #include <random>
 
+DEFINE_string(db_path, "/tmp/db", "db path");
 DEFINE_uint64(buffer_size, 64 * (1<<20), "write buffer size");
 DEFINE_string(compaction_style, "dynamic", "compaction style");
 DEFINE_uint64(simulation_iter, 400, "simulation iterations");
@@ -307,12 +308,11 @@ int main(int argc, char** argv) {
   opt.listeners.emplace_back(new BenchmarkListener(FLAGS_compaction_style, logger, opt.comp_controller, opt.num_levels));
 
   rocksdb::DB* db;
-  auto status = rocksdb::DB::Open(opt, "/tmp/db", &db);
+  auto status = rocksdb::DB::Open(opt, FLAGS_db_path, &db);
   if (!status.ok()) {
     std::cout << "Fail to open db: " << status.ToString() << std::endl;
     exit(1);
   }
-  
 
   RunBenchmark(gen, db, logger);
   

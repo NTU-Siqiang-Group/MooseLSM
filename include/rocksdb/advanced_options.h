@@ -105,10 +105,17 @@ struct AdaptiveCompactionController {
 
   void find_first_mc_when_ready() {
     // Find best MC first
+    using namespace std::chrono_literals;
     auto start = std::chrono::steady_clock::now();
     auto [r, u, p] = compactioner->get_workload();
+    auto latest_state = compactioner->get_most_recent_state();
+    while (latest_state.level_runs.size() == 0) {
+      // might not be ready
+      std::this_thread::sleep_for(1s);
+      latest_state = compactioner->get_most_recent_state();
+    }
     auto [m, c] = DynamicLookForward::FindBestMC(
-      compactioner->get_most_recent_state(),
+      latest_state,
       compactioner->buffer_size,
       r, u, p,
       compactioner->wait_io,

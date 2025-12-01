@@ -113,6 +113,7 @@ static void apply_to_tree(TreeState& state, const DynAction& action) {
 static DynAction get_best_action_with_forward(TreeState& cur_state, int M, int c,
     int64_t buffer_size, int r, int u, int p, double wait_io, double parallel_factor) {
   DynAction best_action;
+  if (cur_state.actions.size() == 0) return best_action;
   std::vector<double> acc_ios;
   DynamicCompactioner::get_win_acc_ios(cur_state.total_runs, 500, acc_ios, buffer_size, c, r, u, p, wait_io, parallel_factor);
   // get estimate finished idx for action

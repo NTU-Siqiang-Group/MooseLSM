@@ -1,16 +1,22 @@
 #!/bin/bash
-# sudo fstrim -v /tmp
-# rm -rf /tmp/db/*
-# build/tools/arce_bench --compaction_style=leveling --read_ratio=0.5 --write_ratio=0.5 \
-#   --output_file=arce.log > arce_bench.log 2>&1 &
-# PID=$!
-# echo "Process PID is: $PID"
-# pidstat -r -p $PID 1 > leveling_pgfault_disk.log
+dbpath=/tmp/rocksdb
+# readratio=0.99
+# writeratio=0.01
 
-sudo fstrim -v /tmp
-rm -rf /tmp/db/*
-build/tools/arce_bench --compaction_style=dynamic --read_ratio=0.5 --write_ratio=0.5 \
-  --output_file=arce_dynamic.log > arce_bench_dynamic_default.log 2>&1 &
-PID=$!
-echo "Process PID is: $PID"
-pidstat -r -p $PID 1 > arce_dynamic_pgfault_disk_default.log
+rratios=(0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9)
+# rratios=(0.2)
+for r in "${rratios[@]}"
+do
+  readratio=$r
+  writeratio=$(python3 -c "print(1 - $r)")
+  echo "rratio: $readratio, wratio: $writeratio ..."
+  # sudo fstrim -v /tmp
+  # rm -rf $dbpath/*
+  # build/tools/arce_bench --compaction_style=leveling --db_path=$dbpath --read_ratio=$readratio --write_ratio=$writeratio \
+  #   --output_file="${readratio}_leveling_ops.log" > "${readratio}_leveling.log" 2>&1
+
+  # sudo fstrim -v /tmp
+  rm -rf $dbpath/*
+  build/tools/arce_bench --compaction_style=dynamic --db_path=$dbpath --read_ratio=$readratio --write_ratio=$writeratio \
+    --output_file="${readratio}_dynamic_ops.log" > "${readratio}_dynamic.log" 2>&1
+done

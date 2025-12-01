@@ -352,7 +352,6 @@ class DynamicCompactionBuilder {
     auto compactioner = mutable_cf_options_.comp_controller->compactioner;
     if (!mutable_cf_options_.comp_controller->ready_to_run.load()) {
       compactioner->set_most_recent_state(state);
-      compactioner->latest_run_num.store(state.total_runs);
       return nullptr;
     }
     // state.InitCompactedActions();

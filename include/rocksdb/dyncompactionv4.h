@@ -79,6 +79,7 @@ struct TreeState {
     return ret;
   }
   void EnumerateActions() {
+    if (total_runs == 0 || level_runs.size() == 0) return;
     DynAction major_compaction, empty;
     for (int i = 0; i < (int)level_runs.size(); i++) {
       empty.removed_files[i].resize(level_runs[i].size(), 0);
@@ -185,7 +186,6 @@ struct DynamicCompactioner {
   static void get_reward_for_action(DynAction& action, int total_runs, const std::vector<double>& acc_ios, int c, int M, int r, int u, int p, int buffer_size, double wait_io, double parallel_factor);
   
   DynAction GetBestAction(TreeState& cur_state) {
-    latest_run_num.store(cur_state.total_runs);
     set_most_recent_state(cur_state);
     inc_triggered_comp(cur_state);
     if (cur_state.max_level_runs == 0 || cur_state.level_runs.size() == 0) {
@@ -210,6 +210,7 @@ struct DynamicCompactioner {
   void set_most_recent_state(const TreeState& state) {
     std::lock_guard<std::mutex> guard(mtx);
     most_recent_state = state;
+    latest_run_num.store(state.total_runs);
   }
 
   TreeState get_most_recent_state() {
